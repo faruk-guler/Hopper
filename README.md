@@ -48,9 +48,6 @@ Serve the application locally to test features and allow icons to load correctly
 # Start a simple web server
 npx http-server -p 8000
 ```
-Then navigate to `http://localhost:8000/index.html` in your web browser.
-
-### Method 2: Direct File Execution
-Double-click the `index.html` file in your workspace directory to run it instantly in your default browser.
+Then navigate to `http://localhost:8000/index.php` in your web browser.
 
 ---
