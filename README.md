@@ -1,5 +1,5 @@
 # Hopper - Change Management System
-<img src="images/hopper.JPG" alt="alt text" width="480" height="330">
+<img src="images/hopper.JPG" alt="alt text" width="430" height="330">
 
 **Hopper** is a premium, lightweight, and modern Single Page Application (SPA) designed to coordinate, track, and review software and infrastructure change requests. It implements industry-standard change management best practices (ITIL/COBIT frameworks) within a gorgeous dark-mode Glassmorphism interface.
 
