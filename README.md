@@ -54,9 +54,3 @@ Then navigate to `http://localhost:8000/index.html` in your web browser.
 Double-click the `index.html` file in your workspace directory to run it instantly in your default browser.
 
 ---
-
-## 👨‍💻 Developer Information
-
-* **Lead Developer:** Faruk Güler
-* **GitHub Profile:** [github.com/faruk-guler](https://github.com/faruk-guler)
-* **Personal Website:** [www.farukguler.com](http://www.farukguler.com)
