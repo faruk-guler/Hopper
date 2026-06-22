@@ -43,38 +43,38 @@ function readDb() {
             [
                 'id' => 1,
                 'username' => 'admin',
-                'password_hash' => password_hash('admin123', PASSWORD_BCRYPT),
-                'name' => 'Administrator',
+                'password_hash' => password_hash('admin', PASSWORD_BCRYPT),
+                'name' => 'faruk guler',
                 'role' => 'Administrator',
-                'title' => 'IT Operations',
+                'title' => 'SysAdmin',
                 'avatar' => '',
                 'email' => 'admin@hopper.local',
                 'phone' => '',
-                'department' => 'Yönetim'
+                'department' => 'Management'
             ],
             [
                 'id' => 2,
                 'username' => 'approver',
-                'password_hash' => password_hash('approver123', PASSWORD_BCRYPT),
+                'password_hash' => password_hash('admin', PASSWORD_BCRYPT),
                 'name' => 'CAB Approver',
                 'role' => 'CAB Approver',
                 'title' => 'Change Advisory Board',
                 'avatar' => '',
                 'email' => 'approver@hopper.local',
                 'phone' => '',
-                'department' => 'BT / IT'
+                'department' => 'IT Operations'
             ],
             [
                 'id' => 3,
                 'username' => 'requester',
-                'password_hash' => password_hash('requester123', PASSWORD_BCRYPT),
+                'password_hash' => password_hash('admin', PASSWORD_BCRYPT),
                 'name' => 'Developer Alice',
                 'role' => 'Requester',
                 'title' => 'Software Engineer',
                 'avatar' => '',
                 'email' => 'alice@hopper.local',
                 'phone' => '',
-                'department' => 'Teknik Servis'
+                'department' => 'Technical Service'
             ]
         ];
         $defaultDb = [
@@ -91,23 +91,38 @@ function readDb() {
                 "Hardware & Infrastructure"
             ],
             'departments' => [
-                'Yönetim', 'BT / IT', 'İnsan Kaynakları', 'Muhasebe', 'Satış',
-                'Pazarlama', 'Ar-Ge', 'Lojistik', 'Depo', 'Güvenlik',
-                'Teknik Servis', 'Kalite Kontrol', 'Müşteri Hizmetleri', 'Eğitim', 'Satın Alma'
+                'Management', 'IT Operations', 'Human Resources', 'Accounting', 'Sales',
+                'Marketing', 'R&D', 'Logistics', 'Warehouse', 'Security',
+                'Technical Service', 'Quality Control', 'Customer Services', 'Training', 'Purchasing', 'Finance & Accounting'
             ]
         ];
-        file_put_contents(DB_PATH, json_encode($defaultDb, JSON_PRETTY_PRINT));
+        writeDb($defaultDb);
         return $defaultDb;
     }
     
-    $raw = file_get_contents(DB_PATH);
-    $db = json_decode($raw, true) ?: [
-        'users' => [],
-        'changes' => [],
-        'activities' => [],
-        'registration_requests' => [],
-        'categories' => []
-    ];
+    $fp = @fopen(DB_PATH, 'rb');
+    if (!$fp) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Database read error. Please retry.']);
+        exit;
+    }
+    @flock($fp, LOCK_SH);
+    $raw = @stream_get_contents($fp);
+    @flock($fp, LOCK_UN);
+    @fclose($fp);
+    
+    if ($raw === false) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Database read error. Please retry.']);
+        exit;
+    }
+    
+    $db = json_decode($raw, true);
+    if ($db === null && json_last_error() !== JSON_ERROR_NONE) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Database parse error. Data may be locked or corrupted.']);
+        exit;
+    }
     
     $migrated = false;
     
@@ -129,12 +144,16 @@ function readDb() {
             if (!isset($db['users'][$i]['department'])) {
                 $role = $db['users'][$i]['role'] ?? '';
                 if ($role === 'Administrator') {
-                    $db['users'][$i]['department'] = 'Yönetim';
+                    $db['users'][$i]['department'] = 'Management';
                 } elseif ($role === 'CAB Approver') {
-                    $db['users'][$i]['department'] = 'BT / IT';
+                    $db['users'][$i]['department'] = 'IT Operations';
                 } else {
-                    $db['users'][$i]['department'] = 'Teknik Servis';
+                    $db['users'][$i]['department'] = 'Technical Service';
                 }
+                $migrated = true;
+            }
+            if (!isset($db['users'][$i]['status'])) {
+                $db['users'][$i]['status'] = '';
                 $migrated = true;
             }
         }
@@ -145,9 +164,9 @@ function readDb() {
     }
     if (!isset($db['departments'])) {
         $db['departments'] = [
-            'Yönetim', 'BT / IT', 'İnsan Kaynakları', 'Muhasebe', 'Satış',
-            'Pazarlama', 'Ar-Ge', 'Lojistik', 'Depo', 'Güvenlik',
-            'Teknik Servis', 'Kalite Kontrol', 'Müşteri Hizmetleri', 'Eğitim', 'Satın Alma'
+            'Management', 'IT Operations', 'Human Resources', 'Accounting', 'Sales',
+            'Marketing', 'R&D', 'Logistics', 'Warehouse', 'Security',
+            'Technical Service', 'Quality Control', 'Customer Services', 'Training', 'Purchasing', 'Finance & Accounting'
         ];
         $migrated = true;
     }
@@ -160,7 +179,15 @@ function readDb() {
 }
 
 function writeDb($data) {
-    file_put_contents(DB_PATH, json_encode($data, JSON_PRETTY_PRINT), LOCK_EX);
+    $fp = @fopen(DB_PATH, 'c+b');
+    if ($fp) {
+        @flock($fp, LOCK_EX);
+        @ftruncate($fp, 0);
+        @fwrite($fp, json_encode($data, JSON_PRETTY_PRINT));
+        @fflush($fp);
+        @flock($fp, LOCK_UN);
+        @fclose($fp);
+    }
 }
 
 // --- JWT ENCRYPTION HELPERS (HMAC-SHA256) ---
@@ -213,8 +240,21 @@ function getAuthenticatedUser() {
 
     if (preg_match('/Bearer\s(\S+)/', $authHeader, $matches)) {
         $payload = decodeJwt($matches[1]);
-        if ($payload) {
-            return $payload; // { id, username, name, role, title }
+        if ($payload && isset($payload['id'])) {
+            // Fetch fresh details from DB to prevent stale JWT data (like changed roles)
+            $db = readDb();
+            foreach ($db['users'] as $u) {
+                if ($u['id'] === $payload['id']) {
+                    return [
+                        'id' => $u['id'],
+                        'username' => $u['username'],
+                        'name' => $u['name'],
+                        'role' => $u['role'],
+                        'title' => $u['title'],
+                        'department' => $u['department'] ?? ''
+                    ];
+                }
+            }
         }
     }
     
@@ -309,35 +349,6 @@ switch ($action) {
 
         $db = readDb();
         
-        // Check if user is in registration requests (pending or rejected)
-        $pendingOrRejected = null;
-        if (isset($db['registration_requests'])) {
-            foreach ($db['registration_requests'] as $req) {
-                if (strtolower($req['username']) === strtolower($username)) {
-                    $pendingOrRejected = $req;
-                    break;
-                }
-            }
-        }
-
-        if ($pendingOrRejected) {
-            if (password_verify($password, $pendingOrRejected['password_hash'])) {
-                if ($pendingOrRejected['status'] === 'Pending') {
-                    http_response_code(403);
-                    echo json_encode(['error' => 'Kayıt talebiniz henüz onaylanmadı. Lütfen yöneticinizin onaylamasını bekleyin.']);
-                    break;
-                } elseif ($pendingOrRejected['status'] === 'Rejected') {
-                    http_response_code(403);
-                    echo json_encode(['error' => 'Kayıt talebiniz yönetici tarafından reddedildi.']);
-                    break;
-                }
-            } else {
-                http_response_code(401);
-                echo json_encode(['error' => 'Invalid username or password.']);
-                break;
-            }
-        }
-
         $user = null;
         foreach ($db['users'] as $u) {
             if (strtolower($u['username']) === strtolower($username)) {
@@ -346,36 +357,69 @@ switch ($action) {
             }
         }
 
-        if (!$user || !password_verify($password, $user['password_hash'])) {
-            http_response_code(401);
-            echo json_encode(['error' => 'Invalid username or password.']);
-            break;
-        }
+        if ($user) {
+            if (!password_verify($password, $user['password_hash'])) {
+                http_response_code(401);
+                echo json_encode(['error' => 'Invalid username or password.']);
+                break;
+            }
 
-        $tokenPayload = [
-            'id' => $user['id'],
-            'username' => $user['username'],
-            'name' => $user['name'],
-            'role' => $user['role'],
-            'title' => $user['title'],
-            'department' => $user['department'] ?? ''
-        ];
-        $token = createJwt($tokenPayload);
-
-        echo json_encode([
-            'token' => $token, 
-            'user' => [
+            $tokenPayload = [
                 'id' => $user['id'],
                 'username' => $user['username'],
                 'name' => $user['name'],
                 'role' => $user['role'],
                 'title' => $user['title'],
-                'email' => $user['email'] ?? '',
-                'phone' => $user['phone'] ?? '',
-                'avatar' => $user['avatar'] ?? '',
                 'department' => $user['department'] ?? ''
-            ]
-        ]);
+            ];
+            $token = createJwt($tokenPayload);
+
+            echo json_encode([
+                'token' => $token, 
+                'user' => [
+                    'id' => $user['id'],
+                    'username' => $user['username'],
+                    'name' => $user['name'],
+                    'role' => $user['role'],
+                    'title' => $user['title'],
+                    'email' => $user['email'] ?? '',
+                    'phone' => $user['phone'] ?? '',
+                    'avatar' => $user['avatar'] ?? '',
+                    'department' => $user['department'] ?? '',
+                    'status' => $user['status'] ?? ''
+                ]
+            ]);
+        } else {
+            // Check registration requests backwards (most recent first)
+            $pendingOrRejected = null;
+            if (isset($db['registration_requests'])) {
+                for ($i = count($db['registration_requests']) - 1; $i >= 0; $i--) {
+                    $req = $db['registration_requests'][$i];
+                    if (strtolower($req['username']) === strtolower($username)) {
+                        $pendingOrRejected = $req;
+                        break;
+                    }
+                }
+            }
+
+            if ($pendingOrRejected) {
+                if (password_verify($password, $pendingOrRejected['password_hash'])) {
+                    if ($pendingOrRejected['status'] === 'Pending') {
+                        http_response_code(403);
+                        echo json_encode(['error' => 'Your registration request has not been approved yet. Please wait for administrator approval.']);
+                        break;
+                    } elseif ($pendingOrRejected['status'] === 'Rejected') {
+                        http_response_code(403);
+                        echo json_encode(['error' => 'Your registration request has been rejected by the administrator.']);
+                        break;
+                    }
+                }
+            }
+
+            // Default to invalid credentials if no active user and no pending/rejected request matches
+            http_response_code(401);
+            echo json_encode(['error' => 'Invalid username or password.']);
+        }
         break;
 
     // 2. User Register
@@ -385,7 +429,7 @@ switch ($action) {
         $password = $input['password'] ?? '';
         $title = trim($input['title'] ?? 'IT Operations');
         $role = $input['role'] ?? 'Requester';
-        $department = trim($input['department'] ?? 'BT / IT');
+        $department = trim($input['department'] ?? 'IT Operations');
 
         if (empty($name) || empty($username) || empty($password)) {
             http_response_code(400);
@@ -429,7 +473,7 @@ switch ($action) {
         foreach ($db['users'] as $u) {
             if (strtolower($u['username']) === strtolower($username)) {
                 http_response_code(409);
-                echo json_encode(['error' => 'Bu kullanıcı adı zaten alınmış veya onay bekliyor.']);
+                echo json_encode(['error' => 'This username is already taken or pending approval.']);
                 exit;
             }
         }
@@ -439,7 +483,7 @@ switch ($action) {
             foreach ($db['registration_requests'] as $req) {
                 if (strtolower($req['username']) === strtolower($username) && $req['status'] !== 'Rejected') {
                     http_response_code(409);
-                    echo json_encode(['error' => 'Bu kullanıcı adı zaten alınmış veya onay bekliyor.']);
+                    echo json_encode(['error' => 'This username is already taken or pending approval.']);
                     exit;
                 }
             }
@@ -469,7 +513,7 @@ switch ($action) {
         http_response_code(201);
         echo json_encode([
             'success' => true,
-            'message' => 'Kayıt talebiniz yöneticiye iletildi. Onaylandıktan sonra giriş yapabilirsiniz.'
+            'message' => 'Your registration request has been submitted to the administrator. You can log in once it is approved.'
         ]);
         break;
 
@@ -502,7 +546,8 @@ switch ($action) {
                 'email' => $user['email'] ?? '',
                 'phone' => $user['phone'] ?? '',
                 'avatar' => $user['avatar'] ?? '',
-                'department' => $user['department'] ?? ''
+                'department' => $user['department'] ?? '',
+                'status' => $user['status'] ?? ''
             ]
         ]);
         break;
@@ -557,18 +602,7 @@ switch ($action) {
             break;
         }
 
-        if ($avatar !== null && !empty($avatar)) {
-            if (!preg_match('/^data:image\/(png|jpeg|jpg|webp);base64,/', $avatar)) {
-                http_response_code(400);
-                echo json_encode(['error' => 'Invalid avatar format. Only PNG, JPG, JPEG, and WEBP base64 images are allowed.']);
-                break;
-            }
-            if (strlen($avatar) > 1500000) {
-                http_response_code(400);
-                echo json_encode(['error' => 'Avatar image size exceeds the allowed 1MB limit.']);
-                break;
-            }
-        }
+
 
         if (!empty($newPassword)) {
             if (strlen($newPassword) < 4 || strlen($newPassword) > 72) {
@@ -591,6 +625,52 @@ switch ($action) {
             http_response_code(404);
             echo json_encode(['error' => 'User not found.']);
             break;
+        }
+
+        if ($avatar !== null && !empty($avatar)) {
+            if (preg_match('/^data:image\/(png|jpeg|jpg|webp);base64,/', $avatar, $matches)) {
+                if (strlen($avatar) > 1500000) {
+                    http_response_code(400);
+                    echo json_encode(['error' => 'Avatar image size exceeds the allowed 1MB limit.']);
+                    break;
+                }
+                
+                $extension = $matches[1] === 'jpeg' ? 'jpg' : $matches[1];
+                $base64Data = preg_replace('/^data:image\/\w+;base64,/', '', $avatar);
+                $imageData = base64_decode($base64Data);
+                
+                if ($imageData === false) {
+                    http_response_code(400);
+                    echo json_encode(['error' => 'Failed to decode base64 image data.']);
+                    break;
+                }
+                
+                if (!is_dir(__DIR__ . '/avatars')) {
+                    mkdir(__DIR__ . '/avatars', 0755, true);
+                }
+                
+                $filename = 'avatars/user_' . $userPayload['id'] . '_' . time() . '.' . $extension;
+                $filepath = __DIR__ . '/' . $filename;
+                
+                $oldAvatar = $db['users'][$userIdx]['avatar'] ?? '';
+                if (!empty($oldAvatar) && strpos($oldAvatar, 'avatars/') === 0 && file_exists(__DIR__ . '/' . $oldAvatar)) {
+                    unlink(__DIR__ . '/' . $oldAvatar);
+                }
+
+                if (file_put_contents($filepath, $imageData) === false) {
+                    http_response_code(500);
+                    echo json_encode(['error' => 'Failed to save avatar image to server.']);
+                    break;
+                }
+                
+                $avatar = $filename;
+            } elseif (strpos($avatar, 'avatars/') === 0) {
+                // Keep the existing avatar file path
+            } else {
+                http_response_code(400);
+                echo json_encode(['error' => 'Invalid avatar format. Only PNG, JPG, JPEG, and WEBP base64 images are allowed.']);
+                break;
+            }
         }
 
         // Apply edits
@@ -633,10 +713,13 @@ switch ($action) {
                 'email' => $db['users'][$userIdx]['email'],
                 'phone' => $db['users'][$userIdx]['phone'],
                 'avatar' => $db['users'][$userIdx]['avatar'],
-                'department' => $db['users'][$userIdx]['department']
+                'department' => $db['users'][$userIdx]['department'],
+                'status' => $db['users'][$userIdx]['status'] ?? ''
             ]
         ]);
         break;
+
+
 
     // 5. Get Users List (Admin Only)
     case 'get_users':
@@ -857,6 +940,143 @@ switch ($action) {
                 'role' => $db['users'][$userIdx]['role']
             ]
         ]);
+        break;
+
+    // 6a. Admin Update User Details (Admin Only)
+    case 'admin_update_user':
+        $admin = getAuthenticatedUser();
+        if ($admin['role'] !== 'Administrator') {
+            http_response_code(403);
+            echo json_encode(['error' => 'Forbidden. Administrator privileges required.']);
+            break;
+        }
+
+        $targetUserId = intval($input['userId'] ?? 0);
+        $name = trim($input['name'] ?? '');
+        $title = trim($input['title'] ?? '');
+        $email = trim($input['email'] ?? '');
+        $phone = trim($input['phone'] ?? '');
+        $department = trim($input['department'] ?? '');
+        $role = trim($input['role'] ?? '');
+        $newPassword = $input['newPassword'] ?? '';
+
+        if (empty($name)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Full name is required.']);
+            break;
+        }
+
+        if (strlen($name) < 2 || strlen($name) > 100) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Full name must be between 2 and 100 characters.']);
+            break;
+        }
+
+        if (strlen($title) > 100) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Job title must be under 100 characters.']);
+            break;
+        }
+
+        if (!empty($email) && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Invalid email address format.']);
+            break;
+        }
+
+        if (strlen($phone) > 30) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Phone number must be under 30 characters.']);
+            break;
+        }
+
+        $db = readDb();
+        $validDepartments = $db['departments'] ?? [];
+        if (empty($department) || !in_array($department, $validDepartments)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Invalid department selected.']);
+            break;
+        }
+
+        $allowedRoles = ['Requester', 'CAB Approver', 'Administrator'];
+        if (!in_array($role, $allowedRoles)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Invalid role specified.']);
+            break;
+        }
+
+        if ($targetUserId === $admin['id'] && $role !== 'Administrator') {
+            http_response_code(400);
+            echo json_encode(['error' => 'You cannot modify your own administrator role.']);
+            break;
+        }
+
+        if (!empty($newPassword)) {
+            if (strlen($newPassword) < 4 || strlen($newPassword) > 72) {
+                http_response_code(400);
+                echo json_encode(['error' => 'Password must be between 4 and 72 characters.']);
+                break;
+            }
+        }
+
+        $userIdx = -1;
+        for ($i = 0; $i < count($db['users']); $i++) {
+            if ($db['users'][$i]['id'] === $targetUserId) {
+                $userIdx = $i;
+                break;
+            }
+        }
+
+        if ($userIdx === -1) {
+            http_response_code(404);
+            echo json_encode(['error' => 'User not found.']);
+            break;
+        }
+
+        // Apply edits
+        $db['users'][$userIdx]['name'] = $name;
+        $db['users'][$userIdx]['title'] = $title;
+        $db['users'][$userIdx]['email'] = $email;
+        $db['users'][$userIdx]['phone'] = $phone;
+        $db['users'][$userIdx]['department'] = $department;
+        $db['users'][$userIdx]['role'] = $role;
+
+        if (!empty($newPassword)) {
+            $db['users'][$userIdx]['password_hash'] = password_hash($newPassword, PASSWORD_BCRYPT);
+        }
+
+        writeDb($db);
+
+        logActivity($admin['name'], "updated user details for '{$db['users'][$userIdx]['username']}'", "USR-{$targetUserId}");
+
+        $response = [
+            'success' => true,
+            'user' => [
+                'id' => $db['users'][$userIdx]['id'],
+                'username' => $db['users'][$userIdx]['username'],
+                'name' => $db['users'][$userIdx]['name'],
+                'role' => $db['users'][$userIdx]['role'],
+                'title' => $db['users'][$userIdx]['title'],
+                'email' => $db['users'][$userIdx]['email'],
+                'phone' => $db['users'][$userIdx]['phone'],
+                'department' => $db['users'][$userIdx]['department']
+            ]
+        ];
+
+        // If the admin updated themselves, regenerate token
+        if ($targetUserId === $admin['id']) {
+            $newTokenPayload = [
+                'id' => $db['users'][$userIdx]['id'],
+                'username' => $db['users'][$userIdx]['username'],
+                'name' => $db['users'][$userIdx]['name'],
+                'role' => $db['users'][$userIdx]['role'],
+                'title' => $db['users'][$userIdx]['title'],
+                'department' => $db['users'][$userIdx]['department']
+            ];
+            $response['token'] = createJwt($newTokenPayload);
+        }
+
+        echo json_encode($response);
         break;
 
     // 7. Get System Categories
@@ -1107,12 +1327,15 @@ switch ($action) {
                     $change['approvals'][$j]['date'] = $now->format('Y-m-d H:i');
                 }
             }
-        }
-
-        if ($user['role'] === 'Requester' && $change['owner'] !== $user['name'] && $change['requester'] !== $user['name']) {
-            http_response_code(403);
-            echo json_encode(['error' => 'You can only update workflows for change requests you own.']);
-            break;
+        } else {
+            // For non-approval states, only Admins or Owners/Requesters can transition
+            if ($user['role'] !== 'Administrator') {
+                if ($change['owner'] !== $user['name'] && $change['requester'] !== $user['name']) {
+                    http_response_code(403);
+                    echo json_encode(['error' => 'You can only update workflows for change requests you own.']);
+                    break;
+                }
+            }
         }
 
         $change['status'] = $status;
@@ -1422,6 +1645,158 @@ switch ($action) {
         writeDb($db);
         logActivity($admin['name'], "deleted change category: \"{$name}\"", "CAT-DEL");
         echo json_encode(['success' => true, 'categories' => $db['categories']]);
+        break;
+
+    // 21. Upload Attachment to Change Request
+    case 'upload_attachment':
+        $user = getAuthenticatedUser();
+        $id = $_GET['id'] ?? '';
+        
+        if (empty($id) || !preg_match('/^CHG-[0-9]+$/', $id)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Invalid change request ID format.']);
+            break;
+        }
+
+        $fileName = trim($input['fileName'] ?? '');
+        $fileType = trim($input['fileType'] ?? '');
+        $fileData = $input['fileData'] ?? ''; // base64
+
+        if (empty($fileName) || empty($fileData)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Missing file details.']);
+            break;
+        }
+
+        $db = readDb();
+        $changeIdx = -1;
+        for ($i = 0; $i < count($db['changes']); $i++) {
+            if ($db['changes'][$i]['id'] === $id) {
+                $changeIdx = $i;
+                break;
+            }
+        }
+
+        if ($changeIdx === -1) {
+            http_response_code(404);
+            echo json_encode(['error' => 'Change request not found.']);
+            break;
+        }
+
+        $change = $db['changes'][$changeIdx];
+
+        if ($user['role'] !== 'Administrator' && $change['owner'] !== $user['name'] && $change['requester'] !== $user['name']) {
+            http_response_code(403);
+            echo json_encode(['error' => 'You can only upload attachments to change requests you own.']);
+            break;
+        }
+
+        $allowedExtensions = ['pdf', 'txt', 'docx', 'xlsx', 'png', 'jpg', 'jpeg', 'zip'];
+        $ext = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+        if (!in_array($ext, $allowedExtensions)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Invalid file extension. Allowed types: PDF, TXT, DOCX, XLSX, PNG, JPG, JPEG, ZIP.']);
+            break;
+        }
+
+        // Check file size (approximate for base64: 1.37 * size)
+        $approxSize = strlen($fileData) * 3 / 4;
+        if ($approxSize > 2 * 1024 * 1024) {
+            http_response_code(400);
+            echo json_encode(['error' => 'File size exceeds the 2MB limit.']);
+            break;
+        }
+
+        $base64Data = preg_replace('/^data:[^;]+;base64,/', '', $fileData);
+        $decodedData = base64_decode($base64Data);
+
+        if ($decodedData === false) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Failed to decode base64 file data.']);
+            break;
+        }
+
+        if (!is_dir(__DIR__ . '/attachments')) {
+            mkdir(__DIR__ . '/attachments', 0755, true);
+        }
+
+        // Clean file name to prevent directory traversal
+        $safeFileName = preg_replace('/[^a-zA-Z0-9_\-\.]/', '_', $fileName);
+        $filename = 'attachments/chg_' . $id . '_' . time() . '_' . $safeFileName;
+        $filepath = __DIR__ . '/' . $filename;
+
+        // Delete old attachment if exists
+        $oldPath = $change['attachment_path'] ?? '';
+        if (!empty($oldPath) && strpos($oldPath, 'attachments/') === 0 && file_exists(__DIR__ . '/' . $oldPath)) {
+            unlink(__DIR__ . '/' . $oldPath);
+        }
+
+        if (file_put_contents($filepath, $decodedData) === false) {
+            http_response_code(500);
+            echo json_encode(['error' => 'Failed to save attachment to server.']);
+            break;
+        }
+
+        $db['changes'][$changeIdx]['attachment_path'] = $filename;
+        $db['changes'][$changeIdx]['attachment_name'] = $fileName;
+        writeDb($db);
+
+        logActivity($user['name'], "uploaded attachment '{$fileName}'", $id);
+
+        echo json_encode([
+            'success' => true,
+            'attachment_path' => $filename,
+            'attachment_name' => $fileName
+        ]);
+        break;
+
+    // 22. Delete Attachment from Change Request
+    case 'delete_attachment':
+        $user = getAuthenticatedUser();
+        $id = $_GET['id'] ?? '';
+
+        if (empty($id) || !preg_match('/^CHG-[0-9]+$/', $id)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Invalid change request ID format.']);
+            break;
+        }
+
+        $db = readDb();
+        $changeIdx = -1;
+        for ($i = 0; $i < count($db['changes']); $i++) {
+            if ($db['changes'][$i]['id'] === $id) {
+                $changeIdx = $i;
+                break;
+            }
+        }
+
+        if ($changeIdx === -1) {
+            http_response_code(404);
+            echo json_encode(['error' => 'Change request not found.']);
+            break;
+        }
+
+        $change = $db['changes'][$changeIdx];
+
+        if ($user['role'] !== 'Administrator' && $change['owner'] !== $user['name'] && $change['requester'] !== $user['name']) {
+            http_response_code(403);
+            echo json_encode(['error' => 'You can only delete attachments from change requests you own.']);
+            break;
+        }
+
+        $oldPath = $change['attachment_path'] ?? '';
+        $oldName = $change['attachment_name'] ?? '';
+        if (!empty($oldPath) && strpos($oldPath, 'attachments/') === 0 && file_exists(__DIR__ . '/' . $oldPath)) {
+            unlink(__DIR__ . '/' . $oldPath);
+        }
+
+        $db['changes'][$changeIdx]['attachment_path'] = '';
+        $db['changes'][$changeIdx]['attachment_name'] = '';
+        writeDb($db);
+
+        logActivity($user['name'], "deleted attachment '{$oldName}'", $id);
+
+        echo json_encode(['success' => true]);
         break;
 
     default:

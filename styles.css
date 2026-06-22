@@ -808,6 +808,45 @@ h1, h2, h3, h4 {
   gap: 8px;
 }
 
+.password-wrapper {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+.password-wrapper input {
+  padding-right: 44px !important;
+  width: 100%;
+  box-sizing: border-box;
+}
+.password-toggle-btn {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none !important;
+  border: none !important;
+  color: #94a3b8 !important;
+  cursor: pointer !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: var(--transition-smooth);
+  z-index: 100 !important;
+  min-height: auto !important;
+  width: 24px !important;
+  height: 24px !important;
+}
+.password-toggle-btn:hover {
+  color: #c084fc !important;
+}
+.password-toggle-btn svg {
+  width: 18px !important;
+  height: 18px !important;
+  display: block !important;
+  pointer-events: none !important;
+}
+
 .form-group label {
   font-size: 0.85rem;
   font-weight: 600;

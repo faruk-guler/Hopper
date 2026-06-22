@@ -1,8 +1,6 @@
 // Hopper App Engine - PHP Full-Stack Version
-document.addEventListener("DOMContentLoaded", () => {
-  // --- LANGUAGE STATE ---
-  let currentLang = localStorage.getItem("hopper_lang") || "en";
 
+document.addEventListener("DOMContentLoaded", () => {
   // --- THEME STATE & TOGGLE ---
   const themeCheckbox = document.getElementById("theme-mode-checkbox");
   const themeSunIcon = document.getElementById("theme-toggle-sun");
@@ -55,6 +53,31 @@ document.addEventListener("DOMContentLoaded", () => {
       .replace(/'/g, "&#039;");
   }
 
+  function getTranslatedStatus(status) {
+    if (!status) return "";
+    const map = {
+      "draft": "Draft",
+      "under review": "Under Review",
+      "pending approval": "Pending Approval",
+      "approved": "Approved",
+      "implementing": "Implementing",
+      "completed": "Completed",
+      "rejected": "Rejected",
+      "rolled back": "Rolled Back"
+    };
+    return map[status.toLowerCase()] || status;
+  }
+
+  function getTranslatedRole(role) {
+    if (!role) return "";
+    const map = {
+      "Requester": "Requester",
+      "CAB Approver": "CAB Approver",
+      "Administrator": "Administrator"
+    };
+    return map[role] || role;
+  }
+
   // --- STATE MANAGEMENT ---
   let changes = [];
   let activities = [];
@@ -71,6 +94,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "January", "February", "March", "April", "May", "June", 
     "July", "August", "September", "October", "November", "December"
   ];
+
 
   // --- AUTHENTICATION HELPERS ---
   function getToken() {
@@ -92,6 +116,7 @@ document.addEventListener("DOMContentLoaded", () => {
     
     if (!token) {
       loginScreen.style.display = "flex";
+      refreshIcons();
       return;
     }
 
@@ -114,12 +139,14 @@ document.addEventListener("DOMContentLoaded", () => {
         // Token invalid
         localStorage.removeItem("hopper_token");
         loginScreen.style.display = "flex";
+        refreshIcons();
       }
     } catch (err) {
       console.error("Auth check failed:", err);
       loginScreen.style.display = "flex";
       document.getElementById("login-error").textContent = "Unable to connect to PHP backend. Verify local server configuration.";
       document.getElementById("login-error").style.display = "block";
+      refreshIcons();
     }
   }
 
@@ -137,21 +164,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Sync names
     const navUserName = document.getElementById("nav-user-name");
-    const dropdownUserName = document.getElementById("dropdown-user-name");
     if (navUserName) navUserName.textContent = currentUser.name;
-    if (dropdownUserName) dropdownUserName.textContent = currentUser.name;
 
     // Sync roles & titles
     const displayRoleTitle = `${currentUser.role} • ${currentUser.title}`;
     const navUserRole = document.getElementById("nav-user-role");
-    const dropdownUserRole = document.getElementById("dropdown-user-role");
     if (navUserRole) navUserRole.textContent = displayRoleTitle;
-    if (dropdownUserRole) dropdownUserRole.textContent = displayRoleTitle;
     
     // Compute initials
     const initials = currentUser.name
-      .split(" ")
-      .map(n => n[0])
+      .trim()
+      .split(/\s+/)
+      .map(n => n ? n[0] : "")
       .join("")
       .substring(0, 3)
       .toUpperCase();
@@ -170,19 +194,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
 
-    // Update dropdown avatar
-    const dropdownAvatarEl = document.getElementById("dropdown-user-avatar");
-    if (dropdownAvatarEl) {
-      if (currentUser.avatar) {
-        dropdownAvatarEl.innerHTML = `<img src="${currentUser.avatar}" style="width:100%; height:100%; border-radius:50%; object-fit:cover; display:block;">`;
-        dropdownAvatarEl.style.padding = "0";
-        dropdownAvatarEl.style.overflow = "hidden";
-      } else {
-        dropdownAvatarEl.textContent = initials;
-        dropdownAvatarEl.style.padding = ""; // Reset
-        dropdownAvatarEl.style.overflow = "";
-      }
-    }
+
   }
 
   // --- DATA REFRESHERS ---
@@ -465,29 +477,29 @@ document.addEventListener("DOMContentLoaded", () => {
     const subtitleEl = document.getElementById("main-subtitle");
     
     if (tabName === "dashboard") {
-      titleEl.textContent = translations[currentLang]['dashboard'];
-      subtitleEl.textContent = translations[currentLang]['dashboard_subtitle'];
+      titleEl.textContent = "Dashboard";
+      subtitleEl.textContent = "Change requests and overall operational status";
     } else if (tabName === "changes") {
-      titleEl.textContent = translations[currentLang]['change_requests'];
-      subtitleEl.textContent = translations[currentLang]['changes_subtitle'];
+      titleEl.textContent = "Change Requests";
+      subtitleEl.textContent = "Track all planned, ongoing, and completed changes";
     } else if (tabName === "approvals") {
-      titleEl.textContent = translations[currentLang]['approval_center'];
-      subtitleEl.textContent = translations[currentLang]['approvals_subtitle'];
+      titleEl.textContent = "Approval Center";
+      subtitleEl.textContent = "Critical change requests awaiting board approval";
     } else if (tabName === "calendar") {
-      titleEl.textContent = translations[currentLang]['change_calendar'];
-      subtitleEl.textContent = translations[currentLang]['calendar_subtitle'];
+      titleEl.textContent = "Change Calendar";
+      subtitleEl.textContent = "Calendar planning to prevent schedule conflicts";
     } else if (tabName === "profile") {
-      titleEl.textContent = translations[currentLang]['my_profile'];
-      subtitleEl.textContent = translations[currentLang]['profile_subtitle'];
+      titleEl.textContent = "My Profile";
+      subtitleEl.textContent = "Manage your personal profile settings and security credentials";
     } else if (tabName === "users") {
-      titleEl.textContent = translations[currentLang]['user_directory'];
-      subtitleEl.textContent = translations[currentLang]['users_subtitle'];
+      titleEl.textContent = "User Directory";
+      subtitleEl.textContent = "Manage system users, contact details, and RBAC roles";
     } else if (tabName === "settings") {
-      titleEl.textContent = translations[currentLang]['system_settings'];
-      subtitleEl.textContent = translations[currentLang]['settings_subtitle'];
+      titleEl.textContent = "System Settings";
+      subtitleEl.textContent = "Configure departments and request categories";
     } else if (tabName === "about") {
-      titleEl.textContent = translations[currentLang]['about_hopper'];
-      subtitleEl.textContent = translations[currentLang]['about_subtitle'];
+      titleEl.textContent = "About Hopper";
+      subtitleEl.textContent = "Development details and project information";
     }
 
     // Toggle tab sections
@@ -562,6 +574,8 @@ document.addEventListener("DOMContentLoaded", () => {
         const escRisk = escapeHTML(change.risk);
         const escStatus = escapeHTML(change.status);
         const escDate = escapeHTML(change.targetDate);
+        const displayRisk = `${change.risk} Risk`;
+        const displayStatus = getTranslatedStatus(change.status);
         const itemHtml = `
           <div class="change-item" data-id="${escId}">
             <span class="change-id">${escId}</span>
@@ -570,10 +584,10 @@ document.addEventListener("DOMContentLoaded", () => {
               <span class="change-meta">${escCategory} • Owner: ${escOwner}</span>
             </div>
             <div>
-              <span class="badge badge-risk ${escRisk.toLowerCase()}">${escRisk} Risk</span>
+              <span class="badge badge-risk ${escRisk.toLowerCase()}">${displayRisk}</span>
             </div>
             <div>
-              <span class="badge badge-status ${escStatus.toLowerCase().replace(' ', '-')}">${escStatus}</span>
+              <span class="badge badge-status ${escStatus.toLowerCase().replace(' ', '-')}">${displayStatus}</span>
             </div>
             <div style="text-align: right; color: var(--text-muted); font-size: 0.85rem; font-weight: 500;">
               ${escDate}
@@ -666,6 +680,8 @@ document.addEventListener("DOMContentLoaded", () => {
             const escRisk = escapeHTML(change.risk);
             const escStatus = escapeHTML(change.status);
             const escDate = escapeHTML(change.targetDate);
+            const displayRisk = `${change.risk} Risk`;
+            const displayStatus = getTranslatedStatus(change.status);
             const itemHtml = `
               <div class="change-item" data-id="${escId}">
                 <span class="change-id">${escId}</span>
@@ -674,10 +690,10 @@ document.addEventListener("DOMContentLoaded", () => {
                   <span class="change-meta">${escCategory} • Owner: ${escOwner}</span>
                 </div>
                 <div>
-                  <span class="badge badge-risk ${escRisk.toLowerCase()}">${escRisk} Risk</span>
+                  <span class="badge badge-risk ${escRisk.toLowerCase()}">${displayRisk}</span>
                 </div>
                 <div>
-                  <span class="badge badge-status ${escStatus.toLowerCase().replace(' ', '-')}">${escStatus}</span>
+                  <span class="badge badge-status ${escStatus.toLowerCase().replace(' ', '-')}">${displayStatus}</span>
                 </div>
                 <div style="text-align: right; color: var(--text-muted); font-size: 0.85rem; font-weight: 500;">
                   ${escDate}
@@ -728,6 +744,8 @@ document.addEventListener("DOMContentLoaded", () => {
         const escReqTitle = escapeHTML(change.requesterTitle);
         const escCategory = escapeHTML(change.category);
         const escRisk = escapeHTML(change.risk);
+        const displayRisk = `${change.risk} Risk`;
+        const displayStatus = getTranslatedStatus(change.status);
         const itemHtml = `
           <div class="change-item" data-id="${escId}">
             <span class="change-id">${escId}</span>
@@ -736,10 +754,10 @@ document.addEventListener("DOMContentLoaded", () => {
               <span class="change-meta">Requester: ${escRequester} (${escReqTitle}) • Category: ${escCategory}</span>
             </div>
             <div>
-              <span class="badge badge-risk ${escRisk.toLowerCase()}">${escRisk} Risk</span>
+              <span class="badge badge-risk ${escRisk.toLowerCase()}">${displayRisk}</span>
             </div>
             <div>
-              <span class="badge badge-status pending-approval">Pending Approval</span>
+              <span class="badge badge-status pending-approval">${displayStatus}</span>
             </div>
             <div style="display: flex; gap: 8px; justify-content: flex-end;">
               <button class="btn btn-secondary btn-sm btn-quick-view" data-id="${escId}">View Details / Approve</button>
@@ -770,7 +788,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // --- RENDERER: CALENDAR ---
   function renderCalendar() {
     const monthLabel = document.getElementById("calendar-month-label");
-    monthLabel.textContent = `${monthNames[currentMonth]} ${currentYear}`;
+    const monthName = monthNames[currentMonth];
+    monthLabel.textContent = `${monthName} ${currentYear}`;
 
     const calendarGrid = document.getElementById("calendar-grid-container");
     calendarGrid.innerHTML = "";
@@ -821,9 +840,35 @@ document.addEventListener("DOMContentLoaded", () => {
         `;
       });
 
+      // Check if there is any category conflict on this day
+      const ignoredStatuses = ["draft", "rejected", "rolled back"];
+      const activeDayChanges = dayChanges.filter(c => !ignoredStatuses.includes(c.status.toLowerCase()));
+      const categoriesSeen = {};
+      let hasDayConflict = false;
+      
+      activeDayChanges.forEach(c => {
+        if (categoriesSeen[c.category]) {
+          hasDayConflict = true;
+        }
+        categoriesSeen[c.category] = true;
+      });
+
+      if (!hasDayConflict) {
+        hasDayConflict = activeDayChanges.some(c => {
+          return changes.some(other => 
+            other.id !== c.id && 
+            other.targetDate === c.targetDate && 
+            other.category === c.category && 
+            !ignoredStatuses.includes(other.status.toLowerCase())
+          );
+        });
+      }
+
+      const conflictIndicator = hasDayConflict ? `<span class="calendar-conflict-dot" title="Schedule Conflict Detected (Multiple changes in same category on this date)" style="width: 8px; height: 8px; background: var(--color-high); border-radius: 50%; display: inline-block; margin-left: 6px; box-shadow: 0 0 8px var(--color-high); animation: pulse 1.5s infinite;"></span>` : "";
+
       calendarGrid.insertAdjacentHTML("beforeend", `
         <div class="calendar-day ${todayClass}">
-          <span class="calendar-day-number">${day}</span>
+          <span class="calendar-day-number">${day}${conflictIndicator}</span>
           <div class="calendar-events">
             ${changePillsHtml}
           </div>
@@ -843,7 +888,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Render next month's leading days
     const currentGridCells = startDay + totalDays;
     const remainingCells = 42 - currentGridCells;
-    if (remainingCells > 0 && remainingCells < 7) {
+    if (remainingCells > 0) {
       for (let day = 1; day <= remainingCells; day++) {
         calendarGrid.insertAdjacentHTML("beforeend", `
           <div class="calendar-day other-month">
@@ -893,6 +938,23 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Reset Form
     formCreate.reset();
+    
+    // Reset Risk Calculator Panel
+    const riskCalcPanel = document.getElementById("risk-calc-panel");
+    if (riskCalcPanel) riskCalcPanel.style.display = "none";
+    const calculatedRiskBadge = document.getElementById("calculated-risk-badge");
+    if (calculatedRiskBadge) {
+      calculatedRiskBadge.textContent = "Low Risk";
+      calculatedRiskBadge.className = "badge badge-risk low";
+    }
+    const qProd = document.getElementById("risk-q-prod");
+    if (qProd) qProd.checked = false;
+    const qDowntime = document.getElementById("risk-q-downtime");
+    if (qDowntime) qDowntime.checked = false;
+    const qUntested = document.getElementById("risk-q-untested");
+    if (qUntested) qUntested.checked = false;
+    const qNoRollback = document.getElementById("risk-q-no-rollback");
+    if (qNoRollback) qNoRollback.checked = false;
     
     // Set current user as default requester and owner
     if (currentUser) {
@@ -963,6 +1025,154 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // --- RISK CALCULATOR BINDINGS ---
+  const btnCalcRisk = document.getElementById("btn-calc-risk");
+  const btnCloseRiskCalc = document.getElementById("btn-close-risk-calc");
+  const riskCalcPanel = document.getElementById("risk-calc-panel");
+  const calculatedRiskBadge = document.getElementById("calculated-risk-badge");
+  const selectRisk = document.getElementById("change-risk");
+
+  const qProd = document.getElementById("risk-q-prod");
+  const qDowntime = document.getElementById("risk-q-downtime");
+  const qUntested = document.getElementById("risk-q-untested");
+  const qNoRollback = document.getElementById("risk-q-no-rollback");
+
+  if (btnCalcRisk && riskCalcPanel) {
+    btnCalcRisk.addEventListener("click", () => {
+      const isVisible = riskCalcPanel.style.display === "block";
+      riskCalcPanel.style.display = isVisible ? "none" : "block";
+    });
+  }
+
+  if (btnCloseRiskCalc && riskCalcPanel) {
+    btnCloseRiskCalc.addEventListener("click", () => {
+      riskCalcPanel.style.display = "none";
+    });
+  }
+
+  function recalculateRisk() {
+    let score = 0;
+    if (qProd && qProd.checked) score++;
+    if (qDowntime && qDowntime.checked) score++;
+    if (qUntested && qUntested.checked) score++;
+    if (qNoRollback && qNoRollback.checked) score++;
+
+    let level = "Low";
+    let badgeClass = "badge-risk low";
+    if (score === 1 || score === 2) {
+      level = "Medium";
+      badgeClass = "badge-risk medium";
+    } else if (score >= 3) {
+      level = "High";
+      badgeClass = "badge-risk high";
+    }
+
+    if (calculatedRiskBadge) {
+      calculatedRiskBadge.textContent = `${level} Risk`;
+      calculatedRiskBadge.className = `badge ${badgeClass}`;
+      calculatedRiskBadge.style.fontWeight = "700";
+    }
+
+    if (selectRisk) {
+      selectRisk.value = level;
+    }
+  }
+
+  [qProd, qDowntime, qUntested, qNoRollback].forEach(q => {
+    if (q) {
+      q.addEventListener("change", recalculateRisk);
+    }
+  });
+
+  // --- CONFLICT DETECTION HELPER ---
+  function checkConflicts(change) {
+    if (!change || !change.targetDate || !change.category) return [];
+    
+    // Ignore draft, rejected, or rolled back changes from conflicts
+    const ignoredStatuses = ["draft", "rejected", "rolled back"];
+    if (ignoredStatuses.includes(change.status.toLowerCase())) {
+      return [];
+    }
+
+    return changes.filter(other => {
+      return other.id !== change.id &&
+             other.targetDate === change.targetDate &&
+             other.category === change.category &&
+             !ignoredStatuses.includes(other.status.toLowerCase());
+    });
+  }
+
+  // --- ATTACHMENT RENDERING HELPER ---
+  function renderAttachments(change) {
+    const attachmentContainer = document.getElementById("detail-attachment-container");
+    const uploadWrapper = document.getElementById("attachment-upload-wrapper");
+    if (!attachmentContainer) return;
+    
+    attachmentContainer.innerHTML = "";
+    
+    if (change.attachment_path) {
+      const escName = escapeHTML(change.attachment_name);
+      const escPath = escapeHTML(change.attachment_path);
+      
+      const isOwnerOrAdmin = currentUser && (currentUser.role === 'Administrator' || change.owner === currentUser.name || change.requester === currentUser.name);
+      
+      attachmentContainer.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); border-radius: var(--border-radius-sm); width: 100%;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <i data-lucide="file-text" style="width: 16px; height: 16px; color: #a78bfa; flex-shrink: 0;"></i>
+            <a href="${escPath}" target="_blank" style="color: var(--text-main); font-weight: 500; text-decoration: none; word-break: break-all; font-size: 0.85rem;">${escName}</a>
+          </div>
+          <div style="display: flex; gap: 8px; flex-shrink: 0;">
+            <a href="${escPath}" download="${escName}" class="btn btn-secondary btn-sm" style="padding: 4px 8px; min-height: auto; cursor: pointer; display: flex; align-items: center; justify-content: center;" title="Download">
+              <i data-lucide="download" style="width: 12px; height: 12px;"></i>
+            </a>
+            ${isOwnerOrAdmin ? `
+              <button class="btn btn-danger btn-sm" id="btn-delete-attachment" style="padding: 4px 8px; min-height: auto; cursor: pointer; display: flex; align-items: center; justify-content: center; background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.2); color: #ef4444;" title="Delete">
+                <i data-lucide="trash-2" style="width: 12px; height: 12px;"></i>
+              </button>
+            ` : ""}
+          </div>
+        </div>
+      `;
+      
+      const btnDeleteAttach = document.getElementById("btn-delete-attachment");
+      if (btnDeleteAttach) {
+        btnDeleteAttach.addEventListener("click", async () => {
+          if (confirm("Are you sure you want to delete this attachment?")) {
+            try {
+              const res = await fetch(`api.php?action=delete_attachment&id=${change.id}`, {
+                method: "POST",
+                headers: getAuthHeaders()
+              });
+              if (res.ok) {
+                await refreshData();
+                openDetailModal(change.id);
+              } else {
+                const err = await res.json();
+                alert(`Error deleting attachment: ${err.error}`);
+              }
+            } catch (e) {
+              alert("Network communication error.");
+            }
+          }
+        });
+      }
+    } else {
+      attachmentContainer.innerHTML = `<p style="color: var(--text-sub); font-size: 0.8rem; font-style: italic; margin: 0;">No attachments uploaded.</p>`;
+    }
+
+    // Show/hide upload section based on roles
+    const isAllowedToUpload = currentUser && (currentUser.role === 'Administrator' || change.owner === currentUser.name || change.requester === currentUser.name);
+    if (uploadWrapper) {
+      if (isAllowedToUpload && !change.attachment_path) {
+        uploadWrapper.style.display = "block";
+      } else {
+        uploadWrapper.style.display = "none";
+      }
+    }
+    refreshIcons();
+  }
+
   // --- DETAIL MODAL & WORKFLOW MANAGEMENT ---
   const modalDetail = document.getElementById("modal-detail");
   const btnDetailClose = document.getElementById("modal-detail-close");
@@ -982,6 +1192,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const data = await res.json();
       const change = data.change;
+
+      // Check Conflicts
+      const conflicts = checkConflicts(change);
+      const conflictBanner = document.getElementById("detail-conflict-banner");
+      const conflictMessage = document.getElementById("detail-conflict-message");
+      if (conflicts.length > 0) {
+        if (conflictBanner) conflictBanner.style.display = "flex";
+        if (conflictMessage) {
+          conflictMessage.textContent = `Schedule Conflict: ${conflicts.length} other active change(s) scheduled for category "${change.category}" on ${change.targetDate} (${conflicts.map(c => c.id).join(', ')}).`;
+        }
+      } else {
+        if (conflictBanner) conflictBanner.style.display = "none";
+      }
 
       // Set static text content
       document.getElementById("detail-id").textContent = change.id;
@@ -1013,6 +1236,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Render Comments Section
       renderComments(change);
+
+      // Render Attachments Section
+      renderAttachments(change);
 
       // Render Workflow Actions Panel
       renderActionsPanel(change);
@@ -1115,13 +1341,13 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       const escAppRole = escapeHTML(app.role);
-      const escAppStatus = escapeHTML(app.status);
+      const displayStatus = getTranslatedStatus(app.status);
       const appHtml = `
         <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px; background: rgba(255,255,255,0.02); border: 1px solid var(--glass-border); border-radius: var(--border-radius-sm);">
           <span style="font-weight: 500; font-size: 0.85rem;">${escAppRole}</span>
           <div style="display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: ${iconColor}; font-weight: 600;">
             <i data-lucide="${iconName}" style="width: 14px; height: 14px;"></i>
-            <span>${escAppStatus}</span>
+            <span>${escapeHTML(displayStatus)}</span>
           </div>
         </div>
       `;
@@ -1134,55 +1360,102 @@ document.addEventListener("DOMContentLoaded", () => {
     const container = document.getElementById("detail-actions-panel");
     container.innerHTML = "";
 
+    const isOwnerOrRequester = currentUser && (change.owner === currentUser.name || change.requester === currentUser.name);
+    const isAdmin = currentUser && currentUser.role === "Administrator";
+    const isCabApprover = currentUser && currentUser.role === "CAB Approver";
+
+    const canManageLifecycle = isAdmin || isOwnerOrRequester;
+    const canApproveReject = isAdmin || isCabApprover;
+
     let buttonsHtml = "";
 
     switch (change.status) {
       case "Draft":
-        buttonsHtml = `
-          <button class="btn btn-primary w-full" id="btn-wf-review">
-            <i data-lucide="send"></i> Submit for Review
-          </button>
-          <button class="btn btn-danger w-full" id="btn-wf-delete">
-            <i data-lucide="trash-2"></i> Delete Request
-          </button>
-        `;
+        if (canManageLifecycle) {
+          buttonsHtml = `
+            <button class="btn btn-primary w-full" id="btn-wf-review">
+              <i data-lucide="send"></i> Submit for Review
+            </button>
+            <button class="btn btn-danger w-full" id="btn-wf-delete">
+              <i data-lucide="trash-2"></i> Delete Request
+            </button>
+          `;
+        } else {
+          buttonsHtml = `
+            <div style="padding: 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); border-radius: var(--border-radius-sm); text-align: center; font-size: 0.85rem; color: var(--text-muted);">
+              Only the owner or an administrator can manage this draft request.
+            </div>
+          `;
+        }
         break;
       case "Under Review":
-        buttonsHtml = `
-          <button class="btn btn-primary w-full" id="btn-wf-request-approval">
-            <i data-lucide="check-square"></i> Submit for Approval
-          </button>
-          <button class="btn btn-secondary w-full" id="btn-wf-draft">
-            <i data-lucide="rotate-ccw"></i> Pull to Draft
-          </button>
-        `;
+        if (canManageLifecycle) {
+          buttonsHtml = `
+            <button class="btn btn-primary w-full" id="btn-wf-request-approval">
+              <i data-lucide="check-square"></i> Submit for Approval
+            </button>
+            <button class="btn btn-secondary w-full" id="btn-wf-draft">
+              <i data-lucide="rotate-ccw"></i> Pull to Draft
+            </button>
+          `;
+        } else {
+          buttonsHtml = `
+            <div style="padding: 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); border-radius: var(--border-radius-sm); text-align: center; font-size: 0.85rem; color: var(--text-muted);">
+              Only the owner or an administrator can manage this request.
+            </div>
+          `;
+        }
         break;
       case "Pending Approval":
-        buttonsHtml = `
-          <button class="btn btn-primary w-full" id="btn-wf-approve" style="background: var(--grad-accent-green); box-shadow: 0 4px 15px rgba(16,185,129,0.35);">
-            <i data-lucide="check"></i> Approve Change
-          </button>
-          <button class="btn btn-danger w-full" id="btn-wf-reject">
-            <i data-lucide="x"></i> Reject Request
-          </button>
-        `;
+        if (canApproveReject) {
+          buttonsHtml = `
+            <button class="btn btn-primary w-full" id="btn-wf-approve" style="background: var(--grad-accent-green); box-shadow: 0 4px 15px rgba(16,185,129,0.35);">
+              <i data-lucide="check"></i> Approve Change
+            </button>
+            <button class="btn btn-danger w-full" id="btn-wf-reject">
+              <i data-lucide="x"></i> Reject Request
+            </button>
+          `;
+        } else {
+          buttonsHtml = `
+            <div style="padding: 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); border-radius: var(--border-radius-sm); text-align: center; font-size: 0.85rem; color: var(--text-muted);">
+              Only CAB Approvers or Administrators can approve or reject this request.
+            </div>
+          `;
+        }
         break;
       case "Approved":
-        buttonsHtml = `
-          <button class="btn btn-primary w-full" id="btn-wf-implement">
-            <i data-lucide="play"></i> Start Maintenance (Prod)
-          </button>
-        `;
+        if (canManageLifecycle) {
+          buttonsHtml = `
+            <button class="btn btn-primary w-full" id="btn-wf-implement">
+              <i data-lucide="play"></i> Start Maintenance (Prod)
+            </button>
+          `;
+        } else {
+          buttonsHtml = `
+            <div style="padding: 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); border-radius: var(--border-radius-sm); text-align: center; font-size: 0.85rem; color: var(--text-muted);">
+              Only the owner or an administrator can manage this request.
+            </div>
+          `;
+        }
         break;
       case "Implementing":
-        buttonsHtml = `
-          <button class="btn btn-primary w-full" id="btn-wf-complete" style="background: var(--grad-accent-green); box-shadow: 0 4px 15px rgba(16,185,129,0.35);">
-            <i data-lucide="check-circle-2"></i> Completed Successfully
-          </button>
-          <button class="btn btn-danger w-full" id="btn-wf-rollback">
-            <i data-lucide="shield-alert"></i> Failed / Rollback
-          </button>
-        `;
+        if (canManageLifecycle) {
+          buttonsHtml = `
+            <button class="btn btn-primary w-full" id="btn-wf-complete" style="background: var(--grad-accent-green); box-shadow: 0 4px 15px rgba(16,185,129,0.35);">
+              <i data-lucide="check-circle-2"></i> Completed Successfully
+            </button>
+            <button class="btn btn-danger w-full" id="btn-wf-rollback">
+              <i data-lucide="shield-alert"></i> Failed / Rollback
+            </button>
+          `;
+        } else {
+          buttonsHtml = `
+            <div style="padding: 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); border-radius: var(--border-radius-sm); text-align: center; font-size: 0.85rem; color: var(--text-muted);">
+              Only the owner or an administrator can manage this request.
+            </div>
+          `;
+        }
         break;
       case "Completed":
       case "Rejected":
@@ -1191,10 +1464,14 @@ document.addEventListener("DOMContentLoaded", () => {
           <div style="padding: 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); border-radius: var(--border-radius-sm); text-align: center; font-size: 0.85rem; color: var(--text-muted);">
             This change request is closed. No actions can be taken.
           </div>
-          <button class="btn btn-secondary w-full" id="btn-wf-reset" style="margin-top: 8px;">
-            <i data-lucide="refresh-cw"></i> Reset to Draft for Testing
-          </button>
         `;
+        if (canManageLifecycle) {
+          buttonsHtml += `
+            <button class="btn btn-secondary w-full" id="btn-wf-reset" style="margin-top: 8px;">
+              <i data-lucide="refresh-cw"></i> Reset to Draft for Testing
+            </button>
+          `;
+        }
         break;
     }
 
@@ -1231,7 +1508,7 @@ document.addEventListener("DOMContentLoaded", () => {
               alert(`Workflow Action Failed: ${err.error}`);
             }
           } catch (e) {
-            alert("Error sending workflow transition request to backend.");
+            alert("Network communication error.");
           }
         });
       }
@@ -1393,12 +1670,12 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("profile-name").value = currentUser.name;
     document.getElementById("profile-username").value = currentUser.username;
     document.getElementById("profile-title").value = currentUser.title;
-    document.getElementById("profile-department").value = currentUser.department || "BT / IT";
+    document.getElementById("profile-department").value = currentUser.department || "IT Operations";
     document.getElementById("profile-email").value = currentUser.email || "";
     document.getElementById("profile-phone").value = currentUser.phone || "";
     
     // Role badge
-    document.getElementById("profile-role-badge").textContent = currentUser.role;
+    document.getElementById("profile-role-badge").textContent = getTranslatedRole(currentUser.role);
     
     // Avatar image setup
     if (currentUser.avatar) {
@@ -1409,7 +1686,7 @@ document.addEventListener("DOMContentLoaded", () => {
     } else {
       avatarImg.style.display = "none";
       avatarPlaceholder.style.display = "flex";
-      const initials = currentUser.name.split(" ").map(n => n[0]).join("").substring(0, 3).toUpperCase();
+      const initials = currentUser.name.trim().split(/\s+/).map(n => n ? n[0] : "").join("").substring(0, 3).toUpperCase();
       avatarPlaceholder.textContent = initials;
       base64AvatarData = null;
     }
@@ -1452,8 +1729,13 @@ document.addEventListener("DOMContentLoaded", () => {
       const escRole = escapeHTML(u.role);
       const escId = escapeHTML(String(u.id));
 
-      const userInitials = escName.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase();
+      const userInitials = escName.trim().split(/\s+/).map(n => n ? n[0] : "").join("").substring(0, 2).toUpperCase();
       const isSelf = u.id === currentUser.id;
+      const displayYou = isSelf ? ' (You)' : '';
+      const displayNoEmail = `<em style="color: var(--text-sub);">No email</em>`;
+      const displayNoPhone = 'No phone';
+
+      const localizedRole = getTranslatedRole(escRole);
       
       const rowHtml = `
         <tr>
@@ -1463,56 +1745,43 @@ document.addEventListener("DOMContentLoaded", () => {
             </div>
             <div>
               <strong style="color: var(--text-main); font-size: 0.9rem;">${escName}</strong><br>
-              <span style="font-size: 0.75rem; color: var(--text-sub);">@${escUsername} ${isSelf ? '(You)' : ''}</span>
+              <span style="font-size: 0.75rem; color: var(--text-sub);">@${escUsername}${displayYou}</span>
             </div>
           </td>
           <td style="padding: 12px 16px; font-size: 0.85rem;">
-            <span style="color: var(--text-muted);">${escEmail || '<em style="color: var(--text-sub);">No email</em>'}</span><br>
-            <span style="color: var(--text-sub); font-size: 0.75rem;">${escPhone || 'No phone'}</span>
+            <span style="color: var(--text-muted);">${escEmail || displayNoEmail}</span><br>
+            <span style="color: var(--text-sub); font-size: 0.75rem;">${escPhone || displayNoPhone}</span>
           </td>
           <td style="padding: 12px 16px; font-size: 0.85rem; color: var(--text-muted);">${escTitle}</td>
           <td style="padding: 12px 16px; font-size: 0.85rem; color: var(--text-muted);">${escDepartment}</td>
-          <td style="padding: 12px 16px;">
-            <select class="form-control admin-user-role-select" data-user-id="${escId}" style="font-size: 0.8rem; padding: 6px 12px; height: auto;" ${isSelf ? 'disabled' : ''}>
-              <option value="Requester" ${escRole === 'Requester' ? 'selected' : ''}>Requester</option>
-              <option value="CAB Approver" ${escRole === 'CAB Approver' ? 'selected' : ''}>CAB Approver</option>
-              <option value="Administrator" ${escRole === 'Administrator' ? 'selected' : ''}>Administrator</option>
-            </select>
+          <td style="padding: 12px 16px; font-size: 0.85rem; color: var(--text-muted); font-weight: 500;">
+            ${localizedRole}
+          </td>
+          <td style="padding: 12px 16px; text-align: right;">
+            <button class="btn btn-secondary btn-edit-user" data-user-id="${escId}" style="padding: 6px 12px; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 6px;">
+              <i data-lucide="edit" style="width: 14px; height: 14px;"></i>
+              <span>Edit</span>
+            </button>
           </td>
         </tr>
       `;
       tbody.insertAdjacentHTML("beforeend", rowHtml);
     });
 
-    // Bind role change dropdown triggers
-    tbody.querySelectorAll(".admin-user-role-select").forEach(select => {
-      select.addEventListener("change", async () => {
-        const userId = parseInt(select.getAttribute("data-user-id"), 10);
-        const newRole = select.value;
-        
-        try {
-          const res = await fetch("api.php?action=change_user_role", {
-            method: "POST",
-            headers: getAuthHeaders(),
-            body: JSON.stringify({ userId, role: newRole })
-          });
-
-          if (res.ok) {
-            await fetchAdminUserDirectory();
-            await refreshData();
-            updateApprovalBadge();
-          } else {
-            const err = await res.json();
-            alert(`Failed to update role: ${err.error}`);
-            // Reload database to reset select value
-            await fetchAdminUserDirectory();
-          }
-        } catch (e) {
-          alert("Error sending request to server.");
-          await fetchAdminUserDirectory();
+    // Bind edit user triggers
+    tbody.querySelectorAll(".btn-edit-user").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const userId = parseInt(btn.getAttribute("data-user-id"), 10);
+        const targetUser = users.find(x => x.id === userId);
+        if (targetUser) {
+          openEditUserModal(targetUser);
         }
       });
     });
+
+    if (window.lucide && typeof window.lucide.createIcons === "function") {
+      window.lucide.createIcons();
+    }
   }
 
   function renderPendingRegistrationRequests(requests) {
@@ -1530,18 +1799,18 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     
     card.style.display = "block";
-    countBadge.textContent = `${pendingRequests.length} ${translations[currentLang]['status_pending']}`;
+    countBadge.textContent = `${pendingRequests.length} Pending Approval`;
     
     pendingRequests.forEach(req => {
       const escName = escapeHTML(req.name);
       const escUsername = escapeHTML(req.username);
       const escTitle = escapeHTML(req.title);
-      const escDept = escapeHTML(req.department || 'BT / IT');
+      const escDept = escapeHTML(req.department || 'IT Operations');
       const escRole = escapeHTML(req.role);
       const escDate = escapeHTML(req.request_date || '');
       const escId = escapeHTML(String(req.id));
       
-      const userInitials = escName.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase();
+      const userInitials = escName.trim().split(/\s+/).map(n => n ? n[0] : "").join("").substring(0, 2).toUpperCase();
       
       const rowHtml = `
         <tr>
@@ -1564,10 +1833,10 @@ document.addEventListener("DOMContentLoaded", () => {
           <td style="padding: 12px 16px; font-size: 0.85rem; color: var(--text-sub);">${escDate}</td>
           <td style="padding: 12px 16px; text-align: right; white-space: nowrap;">
             <button class="btn btn-primary btn-sm btn-approve-reg" data-request-id="${escId}" style="padding: 6px 12px; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 4px; background: #10b981; border-color: #10b981; cursor: pointer; color: white;">
-              <i data-lucide="check" style="width:14px; height:14px;"></i> ${translations[currentLang]['action_approve']}
+              <i data-lucide="check" style="width:14px; height:14px;"></i> Approve
             </button>
             <button class="btn btn-secondary btn-sm btn-reject-reg" data-request-id="${escId}" style="padding: 6px 12px; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 4px; background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.2); color: #ef4444; margin-left: 6px; cursor: pointer;">
-              <i data-lucide="x" style="width:14px; height:14px;"></i> ${translations[currentLang]['action_reject']}
+              <i data-lucide="x" style="width:14px; height:14px;"></i> Reject
             </button>
           </td>
         </tr>
@@ -1580,7 +1849,7 @@ document.addEventListener("DOMContentLoaded", () => {
     tbody.querySelectorAll(".btn-approve-reg").forEach(btn => {
       btn.addEventListener("click", async () => {
         const requestId = parseFloat(btn.getAttribute("data-request-id"));
-        if (confirm(translations[currentLang]['confirm_approve_reg'])) {
+        if (confirm("Are you sure you want to approve this registration request?")) {
           try {
             const res = await fetch("api.php?action=approve_registration", {
               method: "POST",
@@ -1594,7 +1863,7 @@ document.addEventListener("DOMContentLoaded", () => {
               alert(err.error);
             }
           } catch (e) {
-            alert(translations[currentLang]['network_error']);
+            alert("Network communication error.");
           }
         }
       });
@@ -1603,7 +1872,7 @@ document.addEventListener("DOMContentLoaded", () => {
     tbody.querySelectorAll(".btn-reject-reg").forEach(btn => {
       btn.addEventListener("click", async () => {
         const requestId = parseFloat(btn.getAttribute("data-request-id"));
-        if (confirm(translations[currentLang]['confirm_reject_reg'])) {
+        if (confirm("Are you sure you want to reject this registration request?")) {
           try {
             const res = await fetch("api.php?action=reject_registration", {
               method: "POST",
@@ -1617,7 +1886,7 @@ document.addEventListener("DOMContentLoaded", () => {
               alert(err.error);
             }
           } catch (e) {
-            alert(translations[currentLang]['network_error']);
+            alert("Network communication error.");
           }
         }
       });
@@ -1734,7 +2003,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 alert(`Error deleting department: ${err.error}`);
               }
             } catch (e) {
-              alert("Network error.");
+              alert("Network communication error.");
             }
           }
         });
@@ -1780,7 +2049,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 alert(`Error deleting category: ${err.error}`);
               }
             } catch (e) {
-              alert("Network error.");
+              alert("Network communication error.");
             }
           }
         });
@@ -1834,7 +2103,7 @@ document.addEventListener("DOMContentLoaded", () => {
           alert(`Error adding department: ${err.error}`);
         }
       } catch (e) {
-        alert("Network error.");
+        alert("Network communication error.");
       }
     });
   }
@@ -1861,107 +2130,276 @@ document.addEventListener("DOMContentLoaded", () => {
           alert(`Error adding category: ${err.error}`);
         }
       } catch (e) {
-        alert("Network error.");
+        alert("Network communication error.");
       }
     });
   }
+  const btnExportCsv = document.getElementById("btn-export-csv");
+  if (btnExportCsv) {
+    btnExportCsv.addEventListener("click", () => {
+      const query = (document.getElementById("search-query")?.value || "").toLowerCase();
+      const status = document.getElementById("filter-status")?.value || "";
+      const risk = document.getElementById("filter-risk")?.value || "";
 
-  // --- TRANSLATION ENGINE ---
-  function applyLanguage(lang) {
-    currentLang = lang;
-    localStorage.setItem("hopper_lang", lang);
-
-    // 1. Static translation selectors
-    for (const selector in translationSelectors) {
-      const elements = document.querySelectorAll(selector);
-      const rule = translationSelectors[selector];
-      
-      elements.forEach(el => {
-        if (typeof rule === "string") {
-          const text = translations[lang][rule];
-          if (text) {
-            if (el.children.length === 0) {
-              el.textContent = text;
-            } else {
-              let textNodeFound = false;
-              el.childNodes.forEach(child => {
-                if (child.nodeType === Node.TEXT_NODE && child.nodeValue.trim().length > 0) {
-                  child.nodeValue = text;
-                  textNodeFound = true;
-                }
-              });
-              if (!textNodeFound) {
-                // If text node wasn't found directly, prepend text content to preserve badges
-                el.innerHTML = text + el.innerHTML;
-              }
-            }
-          }
-        } else if (typeof rule === "object") {
-          const text = translations[lang][rule.key];
-          if (text) {
-            el.setAttribute(rule.attr, text);
-          }
-        }
+      const filtered = changes.filter(change => {
+        const matchesQuery = change.id.toLowerCase().includes(query) ||
+                             change.title.toLowerCase().includes(query) ||
+                             change.owner.toLowerCase().includes(query);
+        const matchesStatus = status === "" || change.status === status;
+        const matchesRisk = risk === "" || change.risk === risk;
+        return matchesQuery && matchesStatus && matchesRisk;
       });
-    }
 
-    // 2. Extra data-i18n elements
-    const dataI18nEls = document.querySelectorAll("[data-i18n]");
-    dataI18nEls.forEach(el => {
-      const key = el.getAttribute("data-i18n");
-      const text = translations[lang][key];
-      if (text) el.textContent = text;
-    });
-
-    // 3. Highlight language buttons
-    const btnEn = document.getElementById("lang-btn-en");
-    const btnTr = document.getElementById("lang-btn-tr");
-    if (btnEn && btnTr) {
-      if (lang === "en") {
-        btnEn.style.opacity = "1";
-        btnEn.style.color = "#c084fc";
-        btnTr.style.opacity = "0.5";
-        btnTr.style.color = "";
-      } else {
-        btnEn.style.opacity = "0.5";
-        btnEn.style.color = "";
-        btnTr.style.opacity = "1";
-        btnTr.style.color = "#c084fc";
+      if (filtered.length === 0) {
+        alert("No change requests to export.");
+        return;
       }
-    }
 
-    // 4. Reload page title inside browser tab
-    document.title = lang === "tr" ? "Hopper - Değişiklik Yönetim Sistemi" : "Hopper - Change Management System";
+      const headers = ["ID", "Title", "Requester", "Owner", "Category", "Risk Level", "Status", "Target Date"];
+      const csvRows = [headers.join(",")];
 
-    // 5. Re-render dynamic components if tab active
-    if (activeTab === "dashboard") renderDashboard();
-    if (activeTab === "changes") renderChangesList();
-    if (activeTab === "approvals") renderApprovalsList();
-    if (activeTab === "calendar") renderCalendar();
-    if (activeTab === "profile") renderProfileTab();
-    if (activeTab === "users") fetchAdminUserDirectory();
-    if (activeTab === "settings") renderSettingsTab();
+      filtered.forEach(change => {
+        const row = [
+          change.id,
+          `"${change.title.replace(/"/g, '""')}"`,
+          `"${change.requester.replace(/"/g, '""')}"`,
+          `"${change.owner.replace(/"/g, '""')}"`,
+          `"${change.category.replace(/"/g, '""')}"`,
+          change.risk,
+          change.status,
+          change.targetDate
+        ];
+        csvRows.push(row.join(","));
+      });
 
-    refreshIcons();
+      const csvContent = "\uFEFF" + csvRows.join("\n");
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `CAB_Change_Report_${new Date().toISOString().slice(0,10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    });
   }
+
+
 
   // Bind Language switch triggers
-  const btnEn = document.getElementById("lang-btn-en");
-  const btnTr = document.getElementById("lang-btn-tr");
-  if (btnEn && btnTr) {
-    btnEn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      applyLanguage("en");
+
+
+  // --- EDIT USER DETAILS MODAL (Admin Only) ---
+  const modalEditUser = document.getElementById("modal-edit-user");
+  const btnEditUserCancel = document.getElementById("btn-edit-user-cancel");
+  const btnEditUserClose = document.getElementById("modal-edit-user-close");
+  const formEditUser = document.getElementById("form-edit-user");
+
+  function closeEditUserModal() {
+    modalEditUser.classList.remove("active");
+    document.getElementById("edit-user-error").style.display = "none";
+    document.getElementById("edit-user-error").textContent = "";
+  }
+  if (btnEditUserCancel) btnEditUserCancel.addEventListener("click", closeEditUserModal);
+  if (btnEditUserClose) btnEditUserClose.addEventListener("click", closeEditUserModal);
+
+  function openEditUserModal(user) {
+    // Populate departments select dropdown
+    const deptSelect = document.getElementById("edit-user-department");
+    deptSelect.innerHTML = "";
+    departments.forEach(dept => {
+      const option = document.createElement("option");
+      option.value = dept;
+      option.textContent = dept;
+      if (dept === user.department) {
+        option.selected = true;
+      }
+      deptSelect.appendChild(option);
     });
-    btnTr.addEventListener("click", (e) => {
-      e.stopPropagation();
-      applyLanguage("tr");
+
+    // Populate user values
+    document.getElementById("edit-user-id").value = user.id;
+    document.getElementById("edit-user-username").value = user.username;
+    document.getElementById("edit-user-name").value = user.name;
+    document.getElementById("edit-user-title").value = user.title || "";
+    document.getElementById("edit-user-email").value = user.email || "";
+    document.getElementById("edit-user-phone").value = user.phone || "";
+    document.getElementById("edit-user-password").value = ""; // clear password field
+
+    // Populate role selector and handle self-demotion logic
+    const roleSelect = document.getElementById("edit-user-role");
+    roleSelect.value = user.role;
+    
+    // Disable role selector if editing own profile to prevent self-demotion
+    if (user.id === currentUser.id) {
+      roleSelect.disabled = true;
+    } else {
+      roleSelect.disabled = false;
+    }
+
+    // Open modal
+    modalEditUser.classList.add("active");
+  }
+
+  if (formEditUser) {
+    formEditUser.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      
+      const userId = parseInt(document.getElementById("edit-user-id").value, 10);
+      const name = document.getElementById("edit-user-name").value.trim();
+      const title = document.getElementById("edit-user-title").value.trim();
+      const department = document.getElementById("edit-user-department").value;
+      const role = document.getElementById("edit-user-role").value;
+      const email = document.getElementById("edit-user-email").value.trim();
+      const phone = document.getElementById("edit-user-phone").value.trim();
+      const newPassword = document.getElementById("edit-user-password").value;
+      
+      const errorEl = document.getElementById("edit-user-error");
+      errorEl.style.display = "none";
+      errorEl.textContent = "";
+
+      if (!name) {
+        errorEl.textContent = "Full Name is required.";
+        errorEl.style.display = "block";
+        return;
+      }
+
+      try {
+        const res = await fetch("api.php?action=admin_update_user", {
+          method: "POST",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({
+            userId,
+            name,
+            title,
+            department,
+            role,
+            email,
+            phone,
+            newPassword
+          })
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          
+          // Show success alert
+          alert("User updated successfully!");
+          
+          // If we updated ourselves, reload the current session token & state
+          if (data.token) {
+            localStorage.setItem("hopper_token", data.token);
+            // Recheck authentication to refresh currentUser session state
+            await checkAuth();
+          }
+
+          // Close modal
+          closeEditUserModal();
+
+          // Refresh user list directory table
+          await fetchAdminUserDirectory();
+          await refreshData();
+        } else {
+          const errData = await res.json();
+          errorEl.textContent = errData.error || "Failed to update user.";
+          errorEl.style.display = "block";
+        }
+      } catch (err) {
+        errorEl.textContent = "Network communication error.";
+        errorEl.style.display = "block";
+      }
     });
   }
+
+
+  // --- ATTACHMENT UPLOAD LISTENER ---
+  const attachInput = document.getElementById("change-attachment-input");
+  const uploadStatus = document.getElementById("attachment-upload-status");
+  
+  if (attachInput) {
+    attachInput.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      
+      if (file.size > 2 * 1024 * 1024) {
+        alert("File size exceeds 2MB limit.");
+        attachInput.value = "";
+        return;
+      }
+      
+      if (uploadStatus) uploadStatus.textContent = "Reading file...";
+      
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const fileData = reader.result;
+        if (uploadStatus) uploadStatus.textContent = "Uploading file...";
+        
+        try {
+          const res = await fetch(`api.php?action=upload_attachment&id=${activeChangeId}`, {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: JSON.stringify({
+              fileName: file.name,
+              fileType: file.type,
+              fileData: fileData
+            })
+          });
+          
+          if (res.ok) {
+            if (uploadStatus) uploadStatus.textContent = "Max size: 2MB. Formats: PDF, TXT, DOCX, XLSX, PNG, JPG, ZIP.";
+            attachInput.value = "";
+            await refreshData();
+            openDetailModal(activeChangeId);
+          } else {
+            const err = await res.json();
+            alert(`Upload failed: ${err.error}`);
+            if (uploadStatus) uploadStatus.textContent = "Upload failed. Try again.";
+            attachInput.value = "";
+          }
+        } catch (err) {
+          alert("Network communication error.");
+          if (uploadStatus) uploadStatus.textContent = "Upload failed. Try again.";
+          attachInput.value = "";
+        }
+      };
+      reader.onerror = () => {
+        alert("Error reading file.");
+        if (uploadStatus) uploadStatus.textContent = "Error reading file.";
+        attachInput.value = "";
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // --- PASSWORD VISIBILITY TOGGLE ---
+  document.querySelectorAll(".password-toggle-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const targetId = btn.getAttribute("toggle-target");
+      const input = document.getElementById(targetId);
+      if (!input) return;
+
+      if (input.type === "password") {
+        input.type = "text";
+        btn.innerHTML = `<i data-lucide="eye-off" style="width: 18px; height: 18px; display: block;"></i>`;
+      } else {
+        input.type = "password";
+        btn.innerHTML = `<i data-lucide="eye" style="width: 18px; height: 18px; display: block;"></i>`;
+      }
+      refreshIcons();
+    });
+  });
 
   // --- INITIAL APPLICATION START ---
   fetchCategories();
   fetchDepartments();
   checkAuth();
-  applyLanguage(currentLang);
+  document.title = "Hopper - Change Management System";
+  
+  // Double-guard to ensure icons render even if Lucide script loads with latency
+  setTimeout(refreshIcons, 100);
+  setTimeout(refreshIcons, 500);
+  setTimeout(refreshIcons, 1500);
 });

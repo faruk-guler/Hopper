@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Hopper 🦗</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=6">
   <style>
     /* Authentication Overlay */
     .login-screen-overlay {
@@ -54,6 +54,46 @@
       font-weight: 700;
       border-bottom: 2px solid var(--glass-border);
     }
+
+    /* Password visibility toggle styles */
+    .password-wrapper {
+      position: relative;
+      display: block;
+      width: 100%;
+    }
+    .password-wrapper input {
+      padding-right: 44px !important;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .password-toggle-btn {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none !important;
+      border: none !important;
+      color: #94a3b8 !important;
+      cursor: pointer !important;
+      padding: 0 !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      transition: var(--transition-smooth);
+      z-index: 100 !important;
+      min-height: auto !important;
+      width: 24px !important;
+      height: 24px !important;
+    }
+    .password-toggle-btn:hover {
+      color: #c084fc !important;
+    }
+    .password-toggle-btn svg {
+      width: 18px !important;
+      height: 18px !important;
+      display: block !important;
+      pointer-events: none !important;
+    }
   </style>
   <!-- Lucide Icons for beautiful modern vector icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
@@ -65,7 +105,7 @@
     <aside class="sidebar">
       <div class="logo-container">
         <div class="logo-icon" style="overflow: hidden; border-radius: 10px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; background: none; border: 1px solid var(--glass-border);">
-          <img src="images/hopper.JPG" alt="Hopper Logo" style="width: 100%; height: 100%; object-fit: cover;">
+          <img src="images/hopper.png" alt="Hopper Logo" style="width: 100%; height: 100%; object-fit: cover;">
         </div>
         <span class="logo-text">Hopper</span>
       </div>
@@ -95,12 +135,6 @@
             <a href="#" class="menu-item" data-tab="calendar">
               <i data-lucide="calendar"></i>
               <span>Change Calendar</span>
-            </a>
-          </li>
-          <li>
-            <a href="#" class="menu-item" data-tab="profile">
-              <i data-lucide="user"></i>
-              <span>My Profile</span>
             </a>
           </li>
           <li id="nav-users-li" style="display: none;">
@@ -148,36 +182,12 @@
             </div>
 
             <!-- GitHub Style Floating Menu -->
-            <div class="github-dropdown" id="profile-dropdown-menu" style="display: none; position: absolute; right: 0; top: 100%; margin-top: 8px; width: 290px; border-radius: 12px; z-index: 1000; flex-direction: column; padding: 8px 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;">
-              <!-- User Info Header -->
-              <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                  <div class="dropdown-avatar" id="dropdown-user-avatar" style="width: 38px; height: 38px; font-size: 0.9rem; font-weight: 700; color: #c084fc; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--glass-bg-hover); border: 1px solid var(--glass-border);">ADM</div>
-                  <div style="display: flex; flex-direction: column; text-align: left; max-width: 170px; overflow: hidden;">
-                    <span id="dropdown-user-name" style="font-weight: 600; font-size: 0.9rem; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">administrator</span>
-                    <span id="dropdown-user-role" style="font-size: 0.75rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">IT Operations</span>
-                  </div>
-                </div>
-                <div style="color: var(--text-muted); cursor: pointer;" title="Switch Account">
-                  <i data-lucide="arrow-left-right" style="width: 16px; height: 16px;"></i>
-                </div>
-              </div>
-
-              <!-- Set Status Dummy Block -->
-              <div style="padding: 0 16px 10px 16px;">
-                <button style="width: 100%; display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.02); border: 1px solid var(--glass-border); border-radius: 6px; padding: 6px 12px; color: var(--text-main); font-size: 0.8rem; text-align: left; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.06)';" onmouseout="this.style.background='rgba(255,255,255,0.02)';">
-                  <i data-lucide="smile" style="width: 14px; height: 14px; color: var(--text-muted);"></i>
-                  <span>Set status</span>
-                </button>
-              </div>
-
-              <div style="border-top: 1px solid var(--glass-border); margin: 4px 0;"></div>
-
+            <div class="github-dropdown" id="profile-dropdown-menu" style="display: none; position: absolute; right: 0; top: 100%; margin-top: 8px; width: 220px; border-radius: 12px; z-index: 1000; flex-direction: column; padding: 8px 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;">
               <!-- Menu Navigation Links -->
               <div style="display: flex; flex-direction: column;">
                 <a href="#" class="dropdown-item" data-dropdown-tab="profile">
                   <i data-lucide="user" style="width: 16px; height: 16px;"></i>
-                  <span>My Profile</span>
+                  <span data-i18n="my_profile">My Profile</span>
                 </a>
               </div>
 
@@ -187,32 +197,19 @@
               <div style="display: flex; flex-direction: column;">
                 <a href="#" class="dropdown-item" data-dropdown-tab="settings">
                   <i data-lucide="settings" style="width: 16px; height: 16px;"></i>
-                  <span>Settings</span>
+                  <span data-i18n="settings">Settings</span>
                 </a>
                 <!-- Custom Theme Toggle Switch inside dropdown -->
                 <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; color: var(--text-main); font-size: 0.85rem;">
                   <div style="display: flex; align-items: center; gap: 10px;">
                     <i data-lucide="palette" style="width: 16px; height: 16px; color: var(--text-muted);"></i>
-                    <span data-i18n="theme_mode">Theme Mode</span>
+                    <span>Theme Mode</span>
                   </div>
                   <!-- Theme Toggle Switch -->
                   <label class="switch-toggle" style="margin-bottom: 0;">
                     <input type="checkbox" id="theme-mode-checkbox">
                     <span class="switch-slider"></span>
                   </label>
-                </div>
-
-                <!-- Custom Language Switch inside dropdown -->
-                <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; color: var(--text-main); font-size: 0.85rem; border-top: 1px solid var(--glass-border);">
-                  <div style="display: flex; align-items: center; gap: 10px;">
-                    <i data-lucide="globe" style="width: 16px; height: 16px; color: var(--text-muted);"></i>
-                    <span data-i18n="language">Language</span>
-                  </div>
-                  <div style="display: flex; gap: 8px; font-weight: 700;">
-                    <span id="lang-btn-en" style="cursor: pointer; opacity: 0.5; transition: opacity 0.2s;">EN</span>
-                    <span style="color: var(--text-sub);">|</span>
-                    <span id="lang-btn-tr" style="cursor: pointer; opacity: 0.5; transition: opacity 0.2s;">TR</span>
-                  </div>
                 </div>
               </div>
 
@@ -221,7 +218,7 @@
               <!-- Sign out -->
               <a href="#" class="dropdown-item text-danger" id="btn-logout">
                 <i data-lucide="log-out" style="width: 16px; height: 16px;"></i>
-                <span>Sign out</span>
+                <span data-i18n="sign_out">Sign out</span>
               </a>
             </div>
           </div>
@@ -320,6 +317,9 @@
             <option value="Medium">Medium Risk</option>
             <option value="Low">Low Risk</option>
           </select>
+          <button class="btn btn-secondary" id="btn-export-csv" style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; white-space: nowrap;">
+            <i data-lucide="download" style="width: 16px; height: 16px;"></i> Export CAB Report
+          </button>
         </div>
 
         <!-- Main Table/List -->
@@ -364,8 +364,14 @@
       <!-- TAB 6: PROFILE -->
       <section id="tab-profile" class="tab-content">
         <div class="glass-card" style="max-width: 900px; margin: 0 auto;">
-          <div class="section-header" style="border-bottom: 1px solid var(--glass-border); padding-bottom: 16px; margin-bottom: 24px;">
-            <h3>My Profile Settings</h3>
+          <div class="section-header" style="border-bottom: 1px solid var(--glass-border); padding-bottom: 16px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; gap: 16px;">
+            <h3 style="margin: 0;">My Profile Settings</h3>
+            <div style="display: flex; align-items: center; gap: 16px;">
+              <div id="profile-status-message" style="font-size: 0.9rem; font-weight: 600; display: none;"></div>
+              <button type="submit" form="form-profile" class="btn btn-primary" style="margin: 0;">
+                <i data-lucide="save"></i> Save Profile Changes
+              </button>
+            </div>
           </div>
           
           <form id="form-profile" style="display: flex; gap: 32px; flex-wrap: wrap;">
@@ -396,53 +402,58 @@
                   <input type="text" id="profile-username" class="form-control" disabled>
                 </div>
                 <div class="form-group">
-                  <label for="profile-title">Job Title / Ünvan</label>
+                  <label for="profile-title">Job Title</label>
                   <input type="text" id="profile-title" class="form-control">
                 </div>
                 <div class="form-group">
-                  <label for="profile-department">Department / Departman *</label>
+                  <label for="profile-department">Department *</label>
                   <select id="profile-department" class="form-control" required>
-                    <option value="Yönetim">Yönetim</option>
-                    <option value="BT / IT">BT / IT</option>
-                    <option value="İnsan Kaynakları">İnsan Kaynakları</option>
-                    <option value="Muhasebe">Muhasebe</option>
-                    <option value="Satış">Satış</option>
-                    <option value="Pazarlama">Pazarlama</option>
-                    <option value="Ar-Ge">Ar-Ge</option>
-                    <option value="Lojistik">Lojistik</option>
-                    <option value="Depo">Depo</option>
-                    <option value="Güvenlik">Güvenlik</option>
-                    <option value="Teknik Servis">Teknik Servis</option>
-                    <option value="Kalite Kontrol">Kalite Kontrol</option>
-                    <option value="Müşteri Hizmetleri">Müşteri Hizmetleri</option>
-                    <option value="Eğitim">Eğitim</option>
-                    <option value="Satın Alma">Satın Alma</option>
+                    <option value="Management">Management</option>
+                    <option value="IT Operations">IT Operations</option>
+                    <option value="Human Resources">Human Resources</option>
+                    <option value="Accounting">Accounting</option>
+                    <option value="Sales">Sales</option>
+                    <option value="Marketing">Marketing</option>
+                    <option value="R&D">R&D</option>
+                    <option value="Logistics">Logistics</option>
+                    <option value="Warehouse">Warehouse</option>
+                    <option value="Security">Security</option>
+                    <option value="Technical Service">Technical Service</option>
+                    <option value="Quality Control">Quality Control</option>
+                    <option value="Training">Training</option>
+                    <option value="Purchasing">Purchasing</option>
+                    <option value="Finance & Accounting">Finance & Accounting</option>
                   </select>
                 </div>
                 <div class="form-group">
                   <label for="profile-email">Email Address</label>
                   <input type="email" id="profile-email" class="form-control" placeholder="e.g. name@company.com">
                 </div>
-                <div class="form-group form-full">
+                <div class="form-group">
                   <label for="profile-phone">Phone Number</label>
                   <input type="text" id="profile-phone" class="form-control" placeholder="e.g. +90 (555) 123 4567">
                 </div>
                 <div class="form-group">
                   <label for="profile-new-password">New Password</label>
-                  <input type="password" id="profile-new-password" class="form-control" placeholder="Leave empty to keep current">
+                  <div class="password-wrapper">
+                    <input type="password" id="profile-new-password" class="form-control" placeholder="Leave empty to keep current">
+                    <button type="button" class="password-toggle-btn" toggle-target="profile-new-password" title="Toggle password visibility">
+                      <i data-lucide="eye" style="width: 18px; height: 18px;"></i>
+                    </button>
+                  </div>
                 </div>
                 <div class="form-group">
                   <label for="profile-confirm-password">Confirm Password</label>
-                  <input type="password" id="profile-confirm-password" class="form-control" placeholder="Confirm new password">
+                  <div class="password-wrapper">
+                    <input type="password" id="profile-confirm-password" class="form-control" placeholder="Confirm new password">
+                    <button type="button" class="password-toggle-btn" toggle-target="profile-confirm-password" title="Toggle password visibility">
+                      <i data-lucide="eye" style="width: 18px; height: 18px;"></i>
+                    </button>
+                  </div>
                 </div>
               </div>
               
-              <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 12px; border-top: 1px solid var(--glass-border); padding-top: 20px;">
-                <div id="profile-status-message" style="margin-right: auto; align-self: center; font-size: 0.9rem; font-weight: 600; display: none;"></div>
-                <button type="submit" class="btn btn-primary">
-                  <i data-lucide="save"></i> Save Profile Changes
-                </button>
-              </div>
+
             </div>
           </form>
         </div>
@@ -454,7 +465,7 @@
         <div class="glass-card" id="admin-pending-registrations-card" style="max-width: 900px; margin: 0 auto 24px auto; display: none;">
           <div class="section-header" style="border-bottom: 1px solid var(--glass-border); padding-bottom: 16px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;">
             <div>
-              <h3>Pending Registration Requests / Kayıt İstekleri</h3>
+              <h3>Pending Registration Requests</h3>
               <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">Review and approve new user account registrations.</p>
             </div>
             <span class="badge badge-risk medium" id="pending-reg-count" style="background: rgba(245,158,11,0.2); color: var(--status-pending); font-weight: 700;">0 Pending</span>
@@ -492,7 +503,8 @@
                   <th style="padding: 12px 16px;">Contact Info</th>
                   <th style="padding: 12px 16px;">Job Title</th>
                   <th style="padding: 12px 16px;">Department</th>
-                  <th style="padding: 12px 16px; width: 220px;">System Role</th>
+                  <th style="padding: 12px 16px; width: 180px;">System Role</th>
+                  <th style="padding: 12px 16px; text-align: right; width: 100px;">Actions</th>
                 </tr>
               </thead>
               <tbody id="admin-users-tbody">
@@ -553,7 +565,7 @@
       <section id="tab-about" class="tab-content">
         <div class="glass-card" style="max-width: 800px; margin: 40px auto 0 auto; display: flex; flex-direction: column; gap: 24px; text-align: center; padding: 48px 32px;">
           <div style="width: 140px; height: 140px; border-radius: 36px; overflow: hidden; display: flex; align-items: center; justify-content: center; margin: 0 auto; border: 2px solid var(--glass-border-focus); box-shadow: 0 8px 30px rgba(139, 92, 246, 0.35);">
-            <img src="images/hopper.JPG" alt="Hopper Logo" style="width: 100%; height: 100%; object-fit: cover;">
+            <img src="images/hopper.png" alt="Hopper Logo" style="width: 100%; height: 100%; object-fit: cover;">
           </div>
           <div>
             <h2 class="about-title" style="font-size: 2rem; font-weight: 800; margin: 0 auto;">About Hopper</h2>
@@ -629,12 +641,45 @@
           </div>
 
           <div class="form-group">
-            <label for="change-risk" data-i18n="risk_label">Risk Level *</label>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <label for="change-risk" style="margin-bottom: 0;">Risk Level *</label>
+              <button type="button" id="btn-calc-risk" style="background: none; border: none; color: #a78bfa; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px; padding: 0;">
+                <i data-lucide="sparkles" style="width: 12px; height: 12px;"></i> Calculate Risk
+              </button>
+            </div>
             <select id="change-risk" class="form-control" required>
-              <option value="Low" data-i18n="low">Low</option>
-              <option value="Medium" data-i18n="medium">Medium</option>
-              <option value="High" data-i18n="high">High</option>
+              <option value="Low">Low</option>
+              <option value="Medium">Medium</option>
+              <option value="High">High</option>
             </select>
+          </div>
+
+          <!-- Risk Calculator Interactive Panel -->
+          <div class="form-group form-full" id="risk-calc-panel" style="display: none; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--glass-border); border-radius: var(--border-radius-sm); padding: 16px; margin-top: 10px; transition: var(--transition-smooth); width: 100%;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid var(--glass-border); padding-bottom: 8px;">
+              <h5 style="margin: 0; font-size: 0.85rem; color: var(--text-main); font-weight: 700; display: flex; align-items: center; gap: 6px;">
+                <i data-lucide="calculator" style="width: 14px; height: 14px; color: #a78bfa;"></i> Risk Assessment Guide
+              </h5>
+              <button type="button" id="btn-close-risk-calc" style="background: none; border: none; color: var(--text-muted); font-size: 0.75rem; cursor: pointer; padding: 0;">Close</button>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 10px; font-size: 0.8rem;">
+              <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; color: var(--text-muted);">
+                <input type="checkbox" id="risk-q-prod" style="width: 14px; height: 14px;"> Affects Production Environment
+              </label>
+              <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; color: var(--text-muted);">
+                <input type="checkbox" id="risk-q-downtime" style="width: 14px; height: 14px;"> Requires System Downtime / Maintenance Window
+              </label>
+              <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; color: var(--text-muted);">
+                <input type="checkbox" id="risk-q-untested" style="width: 14px; height: 14px;"> Has NOT been tested in Pre-Prod/Staging Environment
+              </label>
+              <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; color: var(--text-muted);">
+                <input type="checkbox" id="risk-q-no-rollback" style="width: 14px; height: 14px;"> Rollback Plan is untested/complex
+              </label>
+              <div style="border-top: 1px solid var(--glass-border); padding-top: 8px; margin-top: 4px; display: flex; justify-content: space-between; align-items: center;">
+                <span>Calculated Level:</span>
+                <span id="calculated-risk-badge" class="badge badge-risk low" style="font-weight: 700;">Low Risk</span>
+              </div>
+            </div>
           </div>
 
           <div class="form-group">
@@ -677,6 +722,12 @@
         <button class="modal-close" id="modal-detail-close">
           <i data-lucide="x"></i>
         </button>
+      </div>
+
+      <!-- Conflict Warning Banner -->
+      <div id="detail-conflict-banner" style="display: none; align-items: center; gap: 10px; padding: 12px 16px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: var(--border-radius-sm); margin-bottom: 20px; color: var(--color-high); font-size: 0.9rem; font-weight: 500; width: 100%;">
+        <i data-lucide="shield-alert" style="width: 20px; height: 20px; flex-shrink: 0;"></i>
+        <span id="detail-conflict-message">Warning: This change overlaps with other schedule windows of the same category.</span>
       </div>
 
       <div class="detail-layout">
@@ -733,9 +784,9 @@
           <div class="detail-section">
             <h4 data-i18n="request_details">Request Details</h4>
             <div style="display: flex; flex-direction: column; gap: 8px; font-size: 0.85rem; margin-top: 10px;">
-              <div><span style="color: var(--text-sub);" data-i18n="requester">Requester:</span> <strong id="detail-requester">...</strong></div>
-              <div><span style="color: var(--text-sub);" data-i18n="owner">Owner:</span> <strong id="detail-owner">...</strong></div>
-              <div><span style="color: var(--text-sub);" data-i18n="target_date">Target Date:</span> <strong id="detail-date">...</strong></div>
+              <div><span style="color: var(--text-sub);" data-i18n="requester">Requester</span>: <strong id="detail-requester">...</strong></div>
+              <div><span style="color: var(--text-sub);" data-i18n="owner">Owner</span>: <strong id="detail-owner">...</strong></div>
+              <div><span style="color: var(--text-sub);" data-i18n="target_date">Target Date</span>: <strong id="detail-date">...</strong></div>
             </div>
           </div>
 
@@ -744,6 +795,22 @@
             <h4 data-i18n="approval_states">Approval States</h4>
             <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;" id="detail-approval-list">
               <!-- Approval log rendered via JS -->
+            </div>
+          </div>
+
+          <!-- Attachments Section -->
+          <div class="detail-section">
+            <h4>Runbooks & Documentation</h4>
+            <div id="detail-attachment-container" style="margin-top: 10px; font-size: 0.85rem;">
+              <!-- Will be populated dynamically by JS -->
+            </div>
+            <!-- Upload form, visible to owners/requesters/admins -->
+            <div id="attachment-upload-wrapper" style="display: none; margin-top: 12px;">
+              <label class="btn btn-secondary btn-sm" style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.75rem; width: 100%; justify-content: center; min-height: auto; padding: 6px 12px;" id="lbl-attachment-input">
+                <i data-lucide="paperclip" style="width: 14px; height: 14px;"></i> Upload File Attachment
+                <input type="file" id="change-attachment-input" style="display: none;" accept=".pdf,.txt,.docx,.xlsx,.png,.jpg,.jpeg,.zip">
+              </label>
+              <div id="attachment-upload-status" style="margin-top: 6px; font-size: 0.75rem; color: var(--text-muted); text-align: center;">Max size: 2MB. Formats: PDF, TXT, DOCX, XLSX, PNG, JPG, ZIP.</div>
             </div>
           </div>
 
@@ -765,12 +832,87 @@
     </div>
   </div>
 
+  <!-- MODAL: EDIT USER DETAILS (Admin Only) -->
+  <div class="modal-overlay" id="modal-edit-user">
+    <div class="glass-card modal-content" style="max-width: 600px;">
+      <div class="modal-header">
+        <h3 id="edit-user-modal-title" data-i18n="edit_user_title">Edit User Details</h3>
+        <button class="modal-close" id="modal-edit-user-close">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      
+      <form id="form-edit-user">
+        <input type="hidden" id="edit-user-id">
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="edit-user-username" data-i18n="username_label">Username</label>
+            <input type="text" id="edit-user-username" class="form-control" readonly disabled style="opacity: 0.6; cursor: not-allowed;">
+          </div>
+
+          <div class="form-group">
+            <label for="edit-user-name" data-i18n="full_name_label">Full Name *</label>
+            <input type="text" id="edit-user-name" class="form-control" required>
+          </div>
+
+          <div class="form-group">
+            <label for="edit-user-title" data-i18n="job_title_label">Job Title</label>
+            <input type="text" id="edit-user-title" class="form-control">
+          </div>
+
+          <div class="form-group">
+            <label for="edit-user-department" data-i18n="department_label">Department *</label>
+            <select id="edit-user-department" class="form-control" required>
+              <!-- Will be populated dynamically by JS -->
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="edit-user-role" data-i18n="system_role_label">System Role *</label>
+            <select id="edit-user-role" class="form-control" required>
+              <option value="Requester" data-i18n="role_req">Requester</option>
+              <option value="CAB Approver" data-i18n="role_cab">CAB Approver</option>
+              <option value="Administrator" data-i18n="role_admin">Administrator</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="edit-user-email" data-i18n="email_label">Email</label>
+            <input type="email" id="edit-user-email" class="form-control">
+          </div>
+
+          <div class="form-group">
+            <label for="edit-user-phone" data-i18n="phone_label">Phone</label>
+            <input type="text" id="edit-user-phone" class="form-control">
+          </div>
+
+          <div class="form-group">
+            <label for="edit-user-password" data-i18n="new_password_label">New Password</label>
+            <div class="password-wrapper">
+              <input type="password" id="edit-user-password" class="form-control" placeholder="Leave blank to keep current" data-i18n-placeholder="keep_password_placeholder">
+              <button type="button" class="password-toggle-btn" toggle-target="edit-user-password" title="Toggle password visibility">
+                <i data-lucide="eye" style="width: 18px; height: 18px;"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div id="edit-user-error" style="color: #f87171; font-size: 0.85rem; margin-top: 12px; margin-bottom: 12px; text-align: center; display: none;"></div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 12px; border-top: 1px solid var(--glass-border); padding-top: 20px; margin-top: 20px;">
+          <button type="button" class="btn btn-secondary" id="btn-edit-user-cancel" data-i18n="cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary" data-i18n="save_changes">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Authentication Screen Overlay -->
   <div id="login-screen" class="login-screen-overlay">
     <div class="glass-card login-card-content">
       <div class="logo-container" style="justify-content: center; border-bottom: none; margin-bottom: 16px; padding-bottom: 0; align-items: center;">
         <div class="logo-icon" style="overflow: hidden; border-radius: 14px; width: 70px; height: 70px; display: flex; align-items: center; justify-content: center; background: none; border: 1px solid var(--glass-border); margin-right: 12px; box-shadow: 0 4px 15px rgba(139, 92, 246, 0.2);">
-          <img src="images/hopper.JPG" alt="Hopper Logo" style="width: 100%; height: 100%; object-fit: cover;">
+          <img src="images/hopper.png" alt="Hopper Logo" style="width: 100%; height: 100%; object-fit: cover;">
         </div>
         <span class="logo-text" style="font-size: 2.25rem; font-weight: 800;">Hopper</span>
       </div>
@@ -784,7 +926,12 @@
         </div>
         <div class="form-group" style="margin-bottom: 24px;">
           <label for="login-password">Password</label>
-          <input type="password" id="login-password" class="form-control" placeholder="Enter password (e.g. admin123)" required>
+          <div class="password-wrapper">
+            <input type="password" id="login-password" class="form-control" placeholder="Enter password (e.g. admin123)" required>
+            <button type="button" class="password-toggle-btn" toggle-target="login-password" title="Toggle password visibility">
+              <i data-lucide="eye" style="width: 18px; height: 18px;"></i>
+            </button>
+          </div>
         </div>
         <div id="login-error" style="color: #f87171; font-size: 0.85rem; margin-bottom: 16px; text-align: center; display: none;"></div>
         <button type="submit" class="btn btn-primary w-full" style="justify-content: center; width: 100%;">
@@ -807,30 +954,35 @@
         </div>
         <div class="form-group" style="margin-bottom: 12px;">
           <label for="reg-password">Password *</label>
-          <input type="password" id="reg-password" class="form-control" placeholder="Password (min 4 chars)" required>
+          <div class="password-wrapper">
+            <input type="password" id="reg-password" class="form-control" placeholder="Password (min 4 chars)" required>
+            <button type="button" class="password-toggle-btn" toggle-target="reg-password" title="Toggle password visibility">
+              <i data-lucide="eye" style="width: 18px; height: 18px;"></i>
+            </button>
+          </div>
         </div>
         <div class="form-group" style="margin-bottom: 12px;">
-          <label for="reg-title">Job Title / Ünvan</label>
+          <label for="reg-title">Job Title</label>
           <input type="text" id="reg-title" class="form-control" placeholder="e.g. Systems Engineer" value="IT Operations">
         </div>
         <div class="form-group" style="margin-bottom: 12px;">
-          <label for="reg-department">Department / Departman *</label>
+          <label for="reg-department">Department *</label>
           <select id="reg-department" class="form-control" required>
-            <option value="Yönetim">Yönetim</option>
-            <option value="BT / IT" selected>BT / IT</option>
-            <option value="İnsan Kaynakları">İnsan Kaynakları</option>
-            <option value="Muhasebe">Muhasebe</option>
-            <option value="Satış">Satış</option>
-            <option value="Pazarlama">Pazarlama</option>
-            <option value="Ar-Ge">Ar-Ge</option>
-            <option value="Lojistik">Lojistik</option>
-            <option value="Depo">Depo</option>
-            <option value="Güvenlik">Güvenlik</option>
-            <option value="Teknik Servis">Teknik Servis</option>
-            <option value="Kalite Kontrol">Kalite Kontrol</option>
-            <option value="Müşteri Hizmetleri">Müşteri Hizmetleri</option>
-            <option value="Eğitim">Eğitim</option>
-            <option value="Satın Alma">Satın Alma</option>
+            <option value="Management">Management</option>
+            <option value="IT Operations" selected>IT Operations</option>
+            <option value="Human Resources">Human Resources</option>
+            <option value="Accounting">Accounting</option>
+            <option value="Sales">Sales</option>
+            <option value="Marketing">Marketing</option>
+            <option value="R&D">R&D</option>
+            <option value="Logistics">Logistics</option>
+            <option value="Warehouse">Warehouse</option>
+            <option value="Security">Security</option>
+            <option value="Technical Service">Technical Service</option>
+            <option value="Quality Control">Quality Control</option>
+            <option value="Training">Training</option>
+            <option value="Purchasing">Purchasing</option>
+            <option value="Finance & Accounting">Finance & Accounting</option>
           </select>
         </div>
         <div class="form-group" style="margin-bottom: 20px;">
@@ -854,8 +1006,6 @@
 
   <!-- Inject preloaded mock data first -->
   <script src="mockData.js?v=5"></script>
-  <!-- Load translation strings -->
-  <script src="translations.js"></script>
   <!-- Load the main application logic -->
   <script src="app.js?v=5"></script>
 </body>

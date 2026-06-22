@@ -1,5 +1,5 @@
 # Hopper - Change Management System
-<img src="images/hopper.JPG" alt="alt text" width="430" height="330">
+<img src="images/hopper.png" alt="alt text" width="430" height="330">
 
 **Hopper** is a premium, lightweight, and modern Single Page Application (SPA) designed to coordinate, track, and review software and infrastructure change requests. It implements industry-standard change management best practices (ITIL/COBIT frameworks) within a gorgeous dark-mode Glassmorphism interface.
 
@@ -40,13 +40,13 @@ Developed by **Faruk Güler**.
 
 ## 💻 How to Run Locally
 
-Since Hopper is built with pure Vanilla web technologies, it requires no compilation or build steps.
+Since Hopper relies on a PHP backend (`api.php` and `index.php`), you need to run it with a PHP-capable web server.
 
-### Method 1: Serving with http-server (Recommended)
-Serve the application locally to test features and allow icons to load correctly:
+### Method 1: Using PHP's Built-in Development Server (Recommended)
+Serve the application locally to run the database backend and allow icons to load correctly:
 ```bash
-# Start a simple web server
-npx http-server -p 8000
+# Start the PHP development server in the project folder
+php -S localhost:8000
 ```
 Then navigate to `http://localhost:8000/index.php` in your web browser.
 
