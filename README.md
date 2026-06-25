@@ -1,7 +1,8 @@
-# Hopper - Change Management System
-<img src="images/hopper.png" alt="alt text" width="430" height="330">
+# Hopper (v1.2.2)
 
-**Hopper** is a premium, lightweight, and modern Single Page Application (SPA) designed to coordinate, track, and review software and infrastructure change requests. It implements industry-standard change management best practices (ITIL/COBIT frameworks) within a gorgeous dark-mode Glassmorphism interface.
+![Hopper Logo](images/hopper.png)
+
+**Hopper** is a premium, lightweight, and modern Single Page Application (SPA) designed to coordinate, track, and review software and infrastructure change requests. It implements industry-standard change management best practices (ITIL/COBIT frameworks) within a clean, flat, and professional classic Bootstrap layout.
 
 Developed by **Faruk Güler**.
 
@@ -16,38 +17,48 @@ Developed by **Faruk Güler**.
 * **Workflow & CAB Approvals:** Managers can approve or reject incoming requests. Action history logs who did what in real-time.
 * **Interactive Checklist:** Implementation owners can check tasks off in the details modal, updating the progress bar dynamically.
 * **Change Calendar:** A monthly grid calendar displaying scheduled changes color-coded by their risk levels to avoid schedule collisions.
-* **About developer panel:** Direct links to the developer's GitHub and personal website.
+* **User Directory:** An administrative table displaying users, roles, titles, and contact information.
 
 ---
 
 ## 🎨 Design System & Aesthetics
 
-* **Glassmorphism Theme:** Rich translucent cards using HSL-based color tokens, fine borders, and blurred background filters.
-* **Typography:** Premium Google Fonts—**Outfit** for headings and **Inter** for readability in body text.
-* **Micro-Animations:** Seamless tab transitions, hover glows, pulsing notification badges, and progress bar animations.
+* **Classic Bootstrap Theme:** Solid, flat card layouts, clear boundary borders, and clear semantic accents (Primary Blue, Success Green, Warning Yellow, Danger Red).
+* **Typography:** Clean Google Font—**Nunito** is configured globally for readable data tables, dashboard headers, and forms.
 * **Vector Icons:** Dynamic loading of icons via **Lucide Icons**.
 
 ---
 
 ## 🛠️ Technologies Used
 
-* **Core:** HTML5, CSS3 (Vanilla Custom Properties), Vanilla ES6 JavaScript.
-* **Icons:** Lucide Icons.
-* **Fonts:** Google Fonts (Inter & Outfit).
-* **Storage:** Client-side persistence using browser `localStorage` (with automatic schema versioning to avoid cache issues).
+* **Frontend:** HTML5, CSS3 (Vanilla CSS variables), Vanilla ES6 JavaScript (zero dependency client-side SPA routing).
+* **Backend:** PHP (PDO database connection layer, session management, JWT authentication).
+* **Database:** MySQL.
 
 ---
 
-## 💻 How to Run Locally
+## 💻 How to Run Locally (XAMPP Environment)
 
-Since Hopper relies on a PHP backend (`api.php` and `index.php`), you need to run it with a PHP-capable web server.
+Since Hopper runs on a PHP and MySQL backend, we recommend setting it up on a local XAMPP web server stack:
 
-### Method 1: Using PHP's Built-in Development Server (Recommended)
-Serve the application locally to run the database backend and allow icons to load correctly:
-```bash
-# Start the PHP development server in the project folder
-php -S localhost:8000
-```
-Then navigate to `http://localhost:8000/index.php` in your web browser.
+### Step 1: Place files in the Web Root
+Copy or extract this project folder inside your XAMPP installation directory's web root:
+- On Windows, this is typically: `C:\xampp\htdocs\Antigravity\`
 
----
+### Step 2: Start the Web Server & Database
+1. Open the **XAMPP Control Panel**.
+2. Click **Start** next to **Apache**.
+3. Click **Start** next to **MySQL**.
+
+### Step 3: Run the Application
+Open your web browser and navigate to:
+- `http://localhost/Antigravity/index.php`
+
+### Step 4: Automatic Database Setup
+On the first launch:
+1. `api.php` will automatically connect to your local MySQL instance (using the default root configuration with no password).
+2. It will run `CREATE DATABASE IF NOT EXISTS db_admin` for you.
+3. It will construct the tables automatically using `schema.sql`.
+4. It will import the default seeding data and user records, allowing you to sign in immediately using:
+   - **Username:** `admin`
+   - **Password:** `admin`

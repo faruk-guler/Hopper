@@ -3,7 +3,9 @@
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Authorization');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit(0);
@@ -23,170 +25,819 @@ if (!function_exists('getallheaders')) {
 }
 
 // Load configurations
-$configPath = __DIR__ . '/config.json';
+$configPath = __DIR__ . '/config.php';
 $config = ['jwtSecret' => 'hopper-default-secret-key-123456', 'webhookUrl' => ''];
 if (file_exists($configPath)) {
-    $decodedConfig = json_decode(file_get_contents($configPath), true);
+    $rawConfig = file_get_contents($configPath);
+    $jsonStart = strpos($rawConfig, '?>');
+    if ($jsonStart !== false) {
+        $rawConfig = substr($rawConfig, $jsonStart + 2);
+    }
+    $decodedConfig = json_decode(trim($rawConfig), true);
     if ($decodedConfig) {
         $config = array_merge($config, $decodedConfig);
     }
 }
-define('JWT_SECRET', $config['jwtSecret']);
+define('DEFAULT_JWT_SECRET', $config['jwtSecret']);
 define('WEBHOOK_URL', $config['webhookUrl']);
-define('DB_PATH', __DIR__ . '/data.json');
 
-// --- DATABASE HELPER FUNCTIONS ---
-function readDb() {
-    if (!file_exists(DB_PATH)) {
-        // Initial Database Seeding
-        $users = [
-            [
-                'id' => 1,
-                'username' => 'admin',
-                'password_hash' => password_hash('admin', PASSWORD_BCRYPT),
-                'name' => 'faruk guler',
-                'role' => 'Administrator',
-                'title' => 'SysAdmin',
-                'avatar' => '',
-                'email' => 'admin@hopper.local',
-                'phone' => '',
-                'department' => 'Management'
-            ],
-            [
-                'id' => 2,
-                'username' => 'approver',
-                'password_hash' => password_hash('admin', PASSWORD_BCRYPT),
-                'name' => 'CAB Approver',
-                'role' => 'CAB Approver',
-                'title' => 'Change Advisory Board',
-                'avatar' => '',
-                'email' => 'approver@hopper.local',
-                'phone' => '',
-                'department' => 'IT Operations'
-            ],
-            [
-                'id' => 3,
-                'username' => 'requester',
-                'password_hash' => password_hash('admin', PASSWORD_BCRYPT),
-                'name' => 'Developer Alice',
-                'role' => 'Requester',
-                'title' => 'Software Engineer',
-                'avatar' => '',
-                'email' => 'alice@hopper.local',
-                'phone' => '',
-                'department' => 'Technical Service'
-            ]
-        ];
-        $defaultDb = [
-            'users' => $users,
-            'changes' => [],
-            'activities' => [],
-            'registration_requests' => [],
-            'categories' => [
-                "Software Development",
-                "Database Management",
-                "Network & Security",
-                "System & Server",
-                "Cloud Infrastructure",
-                "Hardware & Infrastructure"
-            ],
-            'departments' => [
-                'Management', 'IT Operations', 'Human Resources', 'Accounting', 'Sales',
-                'Marketing', 'R&D', 'Logistics', 'Warehouse', 'Security',
-                'Technical Service', 'Quality Control', 'Customer Services', 'Training', 'Purchasing', 'Finance & Accounting'
-            ]
-        ];
-        writeDb($defaultDb);
-        return $defaultDb;
+// Global lock file pointer
+$globalLockFp = null;
+
+function acquireDbLock() {
+    global $globalLockFp;
+    if ($globalLockFp === null) {
+        $lockFile = __DIR__ . '/db.lock';
+        $globalLockFp = fopen($lockFile, 'c+');
+        if ($globalLockFp) {
+            flock($globalLockFp, LOCK_EX);
+            register_shutdown_function('releaseDbLock');
+        }
     }
-    
-    $fp = @fopen(DB_PATH, 'rb');
-    if (!$fp) {
-        http_response_code(500);
-        echo json_encode(['error' => 'Database read error. Please retry.']);
-        exit;
+}
+
+function releaseDbLock() {
+    global $globalLockFp;
+    if ($globalLockFp !== null) {
+        flock($globalLockFp, LOCK_UN);
+        fclose($globalLockFp);
+        $globalLockFp = null;
     }
-    @flock($fp, LOCK_SH);
-    $raw = @stream_get_contents($fp);
-    @flock($fp, LOCK_UN);
-    @fclose($fp);
-    
-    if ($raw === false) {
-        http_response_code(500);
-        echo json_encode(['error' => 'Database read error. Please retry.']);
-        exit;
-    }
-    
-    $db = json_decode($raw, true);
-    if ($db === null && json_last_error() !== JSON_ERROR_NONE) {
-        http_response_code(500);
-        echo json_encode(['error' => 'Database parse error. Data may be locked or corrupted.']);
-        exit;
-    }
-    
-    $migrated = false;
-    
-    // --- DATABASE SCHEMA MIGRATION ---
-    if (isset($db['users'])) {
-        for ($i = 0; $i < count($db['users']); $i++) {
-            if (!isset($db['users'][$i]['avatar'])) {
-                $db['users'][$i]['avatar'] = '';
-                $migrated = true;
+}
+
+function getJwtSecret() {
+    static $secret = null;
+    if ($secret === null) {
+        try {
+            $conn = getDbConnection();
+            $conn->exec("
+                CREATE TABLE IF NOT EXISTS system_settings (
+                    setting_key VARCHAR(100) PRIMARY KEY,
+                    setting_value TEXT
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            ");
+            
+            $stmt = $conn->prepare("SELECT setting_value FROM system_settings WHERE setting_key = 'jwt_secret'");
+            $stmt->execute();
+            $val = $stmt->fetchColumn();
+            
+            if ($val) {
+                $secret = $val;
+            } else {
+                $secret = bin2hex(random_bytes(32));
+                $stmt = $conn->prepare("INSERT INTO system_settings (setting_key, setting_value) VALUES ('jwt_secret', ?)");
+                $stmt->execute([$secret]);
             }
-            if (!isset($db['users'][$i]['email'])) {
-                $db['users'][$i]['email'] = '';
-                $migrated = true;
-            }
-            if (!isset($db['users'][$i]['phone'])) {
-                $db['users'][$i]['phone'] = '';
-                $migrated = true;
-            }
-            if (!isset($db['users'][$i]['department'])) {
-                $role = $db['users'][$i]['role'] ?? '';
-                if ($role === 'Administrator') {
-                    $db['users'][$i]['department'] = 'Management';
-                } elseif ($role === 'CAB Approver') {
-                    $db['users'][$i]['department'] = 'IT Operations';
-                } else {
-                    $db['users'][$i]['department'] = 'Technical Service';
+        } catch (Exception $e) {
+            $secret = defined('DEFAULT_JWT_SECRET') ? DEFAULT_JWT_SECRET : 'hopper-fallback-secret-key-123456';
+        }
+    }
+    return $secret;
+}
+
+$dbHost = $config['dbHost'] ?? '127.0.0.1';
+$dbName = $config['dbName'] ?? 'db_admin';
+$dbUser = $config['dbUser'] ?? 'root';
+$dbPass = $config['dbPass'] ?? '';
+
+define('OLD_JSON_DB_PATH', __DIR__ . '/data.php');
+
+function getDbConnection() {
+    static $conn = null;
+    if ($conn === null) {
+        global $dbHost, $dbName, $dbUser, $dbPass;
+        try {
+            // First connect to MySQL without selecting db to ensure it exists or create it
+            $conn = new PDO("mysql:host=$dbHost", $dbUser, $dbPass);
+            $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+            
+            // Create database if not exists
+            $conn->exec("CREATE DATABASE IF NOT EXISTS `$dbName` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+            
+            // Reconnect with dbname
+            $conn = new PDO("mysql:host=$dbHost;dbname=$dbName;charset=utf8mb4", $dbUser, $dbPass);
+            $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+            $conn->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+            
+            // Check if database tables are empty/uninitialized
+            $stmt = $conn->query("SHOW TABLES");
+            $tables = $stmt->fetchAll(PDO::FETCH_COLUMN);
+            if (empty($tables)) {
+                initializeMysqlDatabase($conn);
+            } else {
+                // Ensure change_revisions schema is up-to-date with new columns
+                try {
+                    $check = $conn->query("SHOW COLUMNS FROM `change_revisions` LIKE 'editor'")->fetch();
+                    if (!$check) {
+                        $conn->exec("DROP TABLE IF EXISTS `change_revisions`");
+                        $conn->exec("
+                            CREATE TABLE IF NOT EXISTS change_revisions (
+                                id INT AUTO_INCREMENT PRIMARY KEY,
+                                change_id VARCHAR(50) NOT NULL,
+                                editor VARCHAR(255) NOT NULL,
+                                date VARCHAR(50) NOT NULL,
+                                changed_fields TEXT NOT NULL,
+                                FOREIGN KEY (change_id) REFERENCES changes(id) ON DELETE CASCADE
+                            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+                        ");
+                    }
+                } catch (PDOException $ex) {
+                    // Fail silently to prevent crash if table does not exist
                 }
-                $migrated = true;
+
+                // Ensure ad_settings table exists and is seeded
+                try {
+                    $conn->exec("
+                        CREATE TABLE IF NOT EXISTS ad_settings (
+                            id INT AUTO_INCREMENT PRIMARY KEY,
+                            adEnabled TINYINT DEFAULT 0,
+                            adServer VARCHAR(255) DEFAULT '',
+                            adPort INT DEFAULT 389,
+                            adBaseDn VARCHAR(255) DEFAULT '',
+                            adDomain VARCHAR(255) DEFAULT ''
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+                    ");
+                    $count = $conn->query("SELECT COUNT(*) FROM ad_settings")->fetchColumn();
+                    if ($count == 0) {
+                        $conn->exec("INSERT INTO ad_settings (id, adEnabled, adServer, adPort, adBaseDn, adDomain) VALUES (1, 0, '', 389, '', '')");
+                    }
+                } catch (PDOException $ex) {
+                    // Fail silently
+                }
             }
-            if (!isset($db['users'][$i]['status'])) {
-                $db['users'][$i]['status'] = '';
-                $migrated = true;
+        } catch (PDOException $e) {
+            http_response_code(500);
+            echo json_encode(['error' => 'MySQL connection failed: ' . $e->getMessage()]);
+            exit;
+        }
+    }
+    return $conn;
+}
+
+function initializeMysqlDatabase($conn) {
+    $schemaPath = __DIR__ . '/schema.sql';
+    if (file_exists($schemaPath)) {
+        $sql = file_get_contents($schemaPath);
+        // Remove comments
+        $sql = preg_replace('/--.*\n/', '', $sql);
+        // Split queries by semicolon and execute
+        $queries = explode(';', $sql);
+        foreach ($queries as $query) {
+            $query = trim($query);
+            if (!empty($query)) {
+                $conn->exec($query);
             }
         }
     }
-    if (!isset($db['registration_requests'])) {
-        $db['registration_requests'] = [];
-        $migrated = true;
-    }
-    if (!isset($db['departments'])) {
-        $db['departments'] = [
-            'Management', 'IT Operations', 'Human Resources', 'Accounting', 'Sales',
-            'Marketing', 'R&D', 'Logistics', 'Warehouse', 'Security',
-            'Technical Service', 'Quality Control', 'Customer Services', 'Training', 'Purchasing', 'Finance & Accounting'
-        ];
-        $migrated = true;
+    migrateFromJsonToMysql($conn);
+}
+
+function seedDefaultMysqlDb($conn) {
+    // Seed categories
+    $categories = [
+        "Software Development",
+        "Database Management",
+        "Network & Security",
+        "System & Server",
+        "Cloud Infrastructure",
+        "Hardware & Infrastructure"
+    ];
+    $stmt = $conn->prepare("INSERT IGNORE INTO categories (name) VALUES (?)");
+    foreach ($categories as $cat) {
+        $stmt->execute([$cat]);
     }
     
-    if ($migrated) {
-        writeDb($db);
+    // Seed departments
+    $departments = [
+        'Management', 'IT Operations', 'Human Resources', 'Accounting', 'Sales',
+        'Marketing', 'R&D', 'Logistics', 'Warehouse', 'Security',
+        'Technical Service', 'Quality Control', 'Customer Services', 'Training', 'Purchasing', 'Finance & Accounting'
+    ];
+    $stmt = $conn->prepare("INSERT IGNORE INTO departments (name) VALUES (?)");
+    foreach ($departments as $dept) {
+        $stmt->execute([$dept]);
     }
+    
+    // Seed groups
+    $groups = [
+        "Software Development",
+        "Database Administration",
+        "Network & Security",
+        "System Administration",
+        "DevOps"
+    ];
+    $stmt = $conn->prepare("INSERT IGNORE INTO groups (name) VALUES (?)");
+    foreach ($groups as $grp) {
+        $stmt->execute([$grp]);
+    }
+    
+    // Seed users
+    $users = [
+        [
+            'id' => 1,
+            'username' => 'admin',
+            'password_hash' => password_hash('admin', PASSWORD_BCRYPT),
+            'name' => 'faruk guler',
+            'role' => 'Administrator',
+            'title' => 'SysAdmin',
+            'avatar' => '',
+            'email' => 'admin@hopper.local',
+            'phone' => '',
+            'department' => 'Management',
+            'status' => 'Working',
+            'group' => 'System Administration'
+        ],
+        [
+            'id' => 2,
+            'username' => 'approver',
+            'password_hash' => password_hash('admin', PASSWORD_BCRYPT),
+            'name' => 'CAB Approver',
+            'role' => 'CAB Approver',
+            'title' => 'Change Advisory Board',
+            'avatar' => '',
+            'email' => 'approver@hopper.local',
+            'phone' => '',
+            'department' => 'IT Operations',
+            'status' => '',
+            'group' => 'Network & Security'
+        ],
+        [
+            'id' => 3,
+            'username' => 'requester',
+            'password_hash' => password_hash('admin', PASSWORD_BCRYPT),
+            'name' => 'Developer Alice',
+            'role' => 'Requester',
+            'title' => 'Software Engineer',
+            'avatar' => '',
+            'email' => 'alice@hopper.local',
+            'phone' => '',
+            'department' => 'Technical Service',
+            'status' => '',
+            'group' => 'Software Development'
+        ]
+    ];
+    $stmt = $conn->prepare("INSERT IGNORE INTO users (id, username, password_hash, name, role, title, avatar, email, phone, department, status, `group`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    foreach ($users as $u) {
+        $stmt->execute([
+            $u['id'],
+            $u['username'],
+            $u['password_hash'],
+            $u['name'],
+            $u['role'],
+            $u['title'],
+            $u['avatar'],
+            $u['email'],
+            $u['phone'],
+            $u['department'],
+            $u['status'],
+            $u['group']
+        ]);
+    }
+    
+    // Seed notification settings
+    $stmt = $conn->prepare("INSERT INTO notification_settings (webhookUrl, notifyOnCreate, notifyOnStatusChange, notifyOnHighRiskOnly) VALUES (?, ?, ?, ?)");
+    $stmt->execute(['', 1, 1, 0]);
+
+    // Seed ad settings
+    $stmtAd = $conn->prepare("INSERT INTO ad_settings (id, adEnabled, adServer, adPort, adBaseDn, adDomain) VALUES (?, ?, ?, ?, ?, ?)");
+    $stmtAd->execute([1, 0, '', 389, '', '']);
+}
+
+function migrateFromJsonToMysql($conn) {
+    if (!file_exists(OLD_JSON_DB_PATH)) {
+        seedDefaultMysqlDb($conn);
+        return;
+    }
+    
+    $raw = @file_get_contents(OLD_JSON_DB_PATH);
+    if ($raw === false) {
+        seedDefaultMysqlDb($conn);
+        return;
+    }
+    
+    $jsonStart = strpos($raw, '?>');
+    if ($jsonStart !== false) {
+        $raw = substr($raw, $jsonStart + 2);
+    }
+    $db = json_decode(trim($raw), true);
+    if (!$db) {
+        seedDefaultMysqlDb($conn);
+        return;
+    }
+    
+    // 1. Migrate categories
+    if (isset($db['categories'])) {
+        $stmt = $conn->prepare("INSERT IGNORE INTO categories (name) VALUES (?)");
+        foreach ($db['categories'] as $cat) {
+            $stmt->execute([$cat]);
+        }
+    }
+    
+    // 2. Migrate departments
+    if (isset($db['departments'])) {
+        $stmt = $conn->prepare("INSERT IGNORE INTO departments (name) VALUES (?)");
+        foreach ($db['departments'] as $dept) {
+            $stmt->execute([$dept]);
+        }
+    }
+    
+    // 3. Migrate groups
+    if (isset($db['groups'])) {
+        $stmt = $conn->prepare("INSERT IGNORE INTO groups (name) VALUES (?)");
+        foreach ($db['groups'] as $grp) {
+            $stmt->execute([$grp]);
+        }
+    }
+    
+    // 4. Migrate users
+    if (isset($db['users'])) {
+        $stmt = $conn->prepare("INSERT IGNORE INTO users (id, username, password_hash, name, role, title, avatar, email, phone, department, status, `group`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        foreach ($db['users'] as $u) {
+            $stmt->execute([
+                $u['id'],
+                $u['username'],
+                $u['password_hash'],
+                $u['name'],
+                $u['role'],
+                $u['title'] ?? '',
+                $u['avatar'] ?? '',
+                $u['email'] ?? '',
+                $u['phone'] ?? '',
+                $u['department'] ?? '',
+                $u['status'] ?? '',
+                $u['group'] ?? ''
+            ]);
+        }
+    }
+    
+    // 5. Migrate registration_requests
+    if (isset($db['registration_requests'])) {
+        $stmt = $conn->prepare("INSERT IGNORE INTO registration_requests (id, username, password_hash, name, role, title, department, email, phone, avatar, status, request_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        foreach ($db['registration_requests'] as $req) {
+            $stmt->execute([
+                $req['id'],
+                $req['username'],
+                $req['password_hash'],
+                $req['name'],
+                $req['role'],
+                $req['title'] ?? '',
+                $req['department'] ?? '',
+                $req['email'] ?? '',
+                $req['phone'] ?? '',
+                $req['avatar'] ?? '',
+                $req['status'] ?? 'Pending',
+                $req['request_date'] ?? date('Y-m-d H:i')
+            ]);
+        }
+    }
+    
+    // 6. Migrate changes, tasks, approvals, comments, and revisions
+    if (isset($db['changes'])) {
+        $stmtChange = $conn->prepare("INSERT IGNORE INTO changes (id, title, description, requester, requesterTitle, owner, ownerTitle, category, risk, status, targetDate, impact, rollbackPlan, progress, assignedGroup, ownerUsername, requesterUsername) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmtTask = $conn->prepare("INSERT INTO change_tasks (change_id, task_number, text, completed) VALUES (?, ?, ?, ?)");
+        $stmtApproval = $conn->prepare("INSERT INTO change_approvals (change_id, role, status, date) VALUES (?, ?, ?, ?)");
+        $stmtComment = $conn->prepare("INSERT INTO change_comments (change_id, user, userTitle, text, date) VALUES (?, ?, ?, ?, ?)");
+        $stmtRevision = $conn->prepare("INSERT INTO change_revisions (change_id, rev_id, title, description, category, risk, targetDate, impact, rollbackPlan, assignedGroup, date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        
+        foreach ($db['changes'] as $c) {
+            $stmtChange->execute([
+                $c['id'],
+                $c['title'],
+                $c['description'] ?? '',
+                $c['requester'] ?? '',
+                $c['requesterTitle'] ?? '',
+                $c['owner'] ?? '',
+                $c['ownerTitle'] ?? '',
+                $c['category'] ?? '',
+                $c['risk'] ?? '',
+                $c['status'] ?? '',
+                $c['targetDate'] ?? '',
+                $c['impact'] ?? '',
+                $c['rollbackPlan'] ?? '',
+                $c['progress'] ?? 0,
+                $c['assignedGroup'] ?? '',
+                $c['ownerUsername'] ?? '',
+                $c['requesterUsername'] ?? ''
+            ]);
+            
+            if (isset($c['tasks']) && is_array($c['tasks'])) {
+                foreach ($c['tasks'] as $idx => $t) {
+                    $stmtTask->execute([
+                        $c['id'],
+                        $t['id'] ?? $idx,
+                        $t['text'],
+                        !empty($t['completed']) ? 1 : 0
+                    ]);
+                }
+            }
+            
+            if (isset($c['approvals']) && is_array($c['approvals'])) {
+                foreach ($c['approvals'] as $app) {
+                    $stmtApproval->execute([
+                        $c['id'],
+                        $app['role'],
+                        $app['status'] ?? 'Pending',
+                        $app['date'] ?? ''
+                    ]);
+                }
+            }
+            
+            if (isset($c['comments']) && is_array($c['comments'])) {
+                foreach ($c['comments'] as $comm) {
+                    $stmtComment->execute([
+                        $c['id'],
+                        $comm['user'],
+                        $comm['userTitle'] ?? '',
+                        $comm['text'],
+                        $comm['date']
+                    ]);
+                }
+            }
+            
+            if (isset($c['revisions']) && is_array($c['revisions'])) {
+                foreach ($c['revisions'] as $rev) {
+                    $stmtRevision->execute([
+                        $c['id'],
+                        $rev['rev_id'] ?? $rev['id'] ?? '',
+                        $rev['title'] ?? '',
+                        $rev['description'] ?? '',
+                        $rev['category'] ?? '',
+                        $rev['risk'] ?? '',
+                        $rev['targetDate'] ?? '',
+                        $rev['impact'] ?? '',
+                        $rev['rollbackPlan'] ?? '',
+                        $rev['assignedGroup'] ?? '',
+                        $rev['date']
+                    ]);
+                }
+            }
+        }
+    }
+    
+    // 7. Migrate activities
+    if (isset($db['activities'])) {
+        $stmt = $conn->prepare("INSERT IGNORE INTO activities (id, user, action, target, date) VALUES (?, ?, ?, ?, ?)");
+        foreach ($db['activities'] as $act) {
+            $stmt->execute([
+                $act['id'],
+                $act['user'],
+                $act['action'],
+                $act['target'] ?? '',
+                $act['date']
+            ]);
+        }
+    }
+    
+    // 8. Migrate notification settings
+    if (isset($db['notification_settings'])) {
+        $ns = $db['notification_settings'];
+        $stmt = $conn->prepare("INSERT INTO notification_settings (webhookUrl, notifyOnCreate, notifyOnStatusChange, notifyOnHighRiskOnly) VALUES (?, ?, ?, ?)");
+        $stmt->execute([
+            $ns['webhookUrl'] ?? '',
+            isset($ns['notifyOnCreate']) ? (!empty($ns['notifyOnCreate']) ? 1 : 0) : 1,
+            isset($ns['notifyOnStatusChange']) ? (!empty($ns['notifyOnStatusChange']) ? 1 : 0) : 1,
+            isset($ns['notifyOnHighRiskOnly']) ? (!empty($ns['notifyOnHighRiskOnly']) ? 1 : 0) : 0
+        ]);
+    }
+}
+
+// --- DATABASE HELPER FUNCTIONS ---
+function readDb() {
+    acquireDbLock();
+    $conn = getDbConnection();
+    $db = [];
+    
+    // 1. Users
+    $stmt = $conn->query("SELECT * FROM users");
+    $db['users'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    for ($i = 0; $i < count($db['users']); $i++) {
+        $db['users'][$i]['id'] = (int)$db['users'][$i]['id'];
+    }
+    
+    // 2. Registration Requests
+    $stmt = $conn->query("SELECT * FROM registration_requests");
+    $db['registration_requests'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    for ($i = 0; $i < count($db['registration_requests']); $i++) {
+        $db['registration_requests'][$i]['id'] = (float)$db['registration_requests'][$i]['id'];
+    }
+    
+    // 3. Categories
+    $stmt = $conn->query("SELECT name FROM categories");
+    $db['categories'] = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    
+    // 4. Departments
+    $stmt = $conn->query("SELECT name FROM departments");
+    $db['departments'] = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    
+    // 5. Groups
+    $stmt = $conn->query("SELECT name FROM groups");
+    $db['groups'] = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    
+    // 6. Notification Settings
+    $stmt = $conn->query("SELECT * FROM notification_settings LIMIT 1");
+    $ns = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($ns) {
+        $db['notification_settings'] = [
+            'webhookUrl' => $ns['webhookUrl'],
+            'notifyOnCreate' => (bool)$ns['notifyOnCreate'],
+            'notifyOnStatusChange' => (bool)$ns['notifyOnStatusChange'],
+            'notifyOnHighRiskOnly' => (bool)$ns['notifyOnHighRiskOnly']
+        ];
+    } else {
+        $db['notification_settings'] = [
+            'webhookUrl' => '',
+            'notifyOnCreate' => true,
+            'notifyOnStatusChange' => true,
+            'notifyOnHighRiskOnly' => false
+        ];
+    }
+
+    // 6a. Active Directory Settings
+    $stmt = $conn->query("SELECT * FROM ad_settings LIMIT 1");
+    $ad = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($ad) {
+        $db['ad_settings'] = [
+            'adEnabled' => (bool)$ad['adEnabled'],
+            'adServer' => $ad['adServer'],
+            'adPort' => (int)$ad['adPort'],
+            'adBaseDn' => $ad['adBaseDn'],
+            'adDomain' => $ad['adDomain']
+        ];
+    } else {
+        $db['ad_settings'] = [
+            'adEnabled' => false,
+            'adServer' => '',
+            'adPort' => 389,
+            'adBaseDn' => '',
+            'adDomain' => ''
+        ];
+    }
+    
+    // 7. Activities
+    $stmt = $conn->query("SELECT * FROM activities ORDER BY id DESC");
+    $db['activities'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    for ($i = 0; $i < count($db['activities']); $i++) {
+        $db['activities'][$i]['id'] = (float)$db['activities'][$i]['id'];
+    }
+    
+    // 8. Changes (with relational sub-arrays)
+    $stmt = $conn->query("SELECT * FROM changes");
+    $changes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    $stmtTasks = $conn->prepare("SELECT id as db_id, task_number, text, completed FROM change_tasks WHERE change_id = ? ORDER BY task_number ASC");
+    $stmtApprovals = $conn->prepare("SELECT id, role, status, date FROM change_approvals WHERE change_id = ?");
+    $stmtComments = $conn->prepare("SELECT id, user, userTitle, text, date FROM change_comments WHERE change_id = ?");
+    $stmtRevisions = $conn->prepare("SELECT id, editor, date, changed_fields as `changes` FROM change_revisions WHERE change_id = ? ORDER BY id DESC");
+    
+    for ($i = 0; $i < count($changes); $i++) {
+        $chgId = $changes[$i]['id'];
+        
+        $stmtTasks->execute([$chgId]);
+        $changes[$i]['tasks'] = $stmtTasks->fetchAll(PDO::FETCH_ASSOC);
+        for ($j = 0; $j < count($changes[$i]['tasks']); $j++) {
+            $changes[$i]['tasks'][$j]['db_id'] = (int)$changes[$i]['tasks'][$j]['db_id'];
+            $changes[$i]['tasks'][$j]['id'] = (int)$changes[$i]['tasks'][$j]['task_number'];
+            $changes[$i]['tasks'][$j]['completed'] = (bool)$changes[$i]['tasks'][$j]['completed'];
+        }
+        
+        $stmtApprovals->execute([$chgId]);
+        $changes[$i]['approvals'] = $stmtApprovals->fetchAll(PDO::FETCH_ASSOC);
+        for ($j = 0; $j < count($changes[$i]['approvals']); $j++) {
+            $changes[$i]['approvals'][$j]['id'] = (int)$changes[$i]['approvals'][$j]['id'];
+        }
+        
+        $stmtComments->execute([$chgId]);
+        $changes[$i]['comments'] = $stmtComments->fetchAll(PDO::FETCH_ASSOC);
+        for ($j = 0; $j < count($changes[$i]['comments']); $j++) {
+            $changes[$i]['comments'][$j]['id'] = (int)$changes[$i]['comments'][$j]['id'];
+            $changes[$i]['comments'][$j]['author'] = $changes[$i]['comments'][$j]['user'];
+        }
+        
+        $stmtRevisions->execute([$chgId]);
+        $revs = $stmtRevisions->fetchAll(PDO::FETCH_ASSOC);
+        for ($j = 0; $j < count($revs); $j++) {
+            $revs[$j]['id'] = (int)$revs[$j]['id'];
+            $revs[$j]['changes'] = !empty($revs[$j]['changes']) ? explode(',', $revs[$j]['changes']) : [];
+        }
+        $changes[$i]['revisions'] = $revs;
+        
+        $changes[$i]['progress'] = (int)$changes[$i]['progress'];
+    }
+    $db['changes'] = $changes;
     
     return $db;
 }
 
-function writeDb($data) {
-    $fp = @fopen(DB_PATH, 'c+b');
-    if ($fp) {
-        @flock($fp, LOCK_EX);
-        @ftruncate($fp, 0);
-        @fwrite($fp, json_encode($data, JSON_PRETTY_PRINT));
-        @fflush($fp);
-        @flock($fp, LOCK_UN);
-        @fclose($fp);
+function writeDb($db) {
+    $conn = getDbConnection();
+    
+    try {
+        $conn->beginTransaction();
+        
+        // 1. Sync Categories
+        if (isset($db['categories'])) {
+            $conn->exec("DELETE FROM categories");
+            $stmt = $conn->prepare("INSERT INTO categories (name) VALUES (?)");
+            foreach ($db['categories'] as $cat) {
+                $stmt->execute([$cat]);
+            }
+        }
+        
+        // 2. Sync Departments
+        if (isset($db['departments'])) {
+            $conn->exec("DELETE FROM departments");
+            $stmt = $conn->prepare("INSERT INTO departments (name) VALUES (?)");
+            foreach ($db['departments'] as $dept) {
+                $stmt->execute([$dept]);
+            }
+        }
+        
+        // 3. Sync Groups
+        if (isset($db['groups'])) {
+            $conn->exec("DELETE FROM groups");
+            $stmt = $conn->prepare("INSERT INTO groups (name) VALUES (?)");
+            foreach ($db['groups'] as $grp) {
+                $stmt->execute([$grp]);
+            }
+        }
+        
+        // 4. Sync Users
+        if (isset($db['users'])) {
+            $conn->exec("DELETE FROM users");
+            $stmt = $conn->prepare("INSERT INTO users (id, username, password_hash, name, role, title, avatar, email, phone, department, status, `group`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            foreach ($db['users'] as $u) {
+                $stmt->execute([
+                    $u['id'],
+                    $u['username'],
+                    $u['password_hash'],
+                    $u['name'],
+                    $u['role'],
+                    $u['title'] ?? '',
+                    $u['avatar'] ?? null,
+                    $u['email'] ?? '',
+                    $u['phone'] ?? '',
+                    $u['department'] ?? '',
+                    $u['status'] ?? '',
+                    $u['group'] ?? ''
+                ]);
+            }
+        }
+        
+        // 5. Sync Registration Requests
+        if (isset($db['registration_requests'])) {
+            $conn->exec("DELETE FROM registration_requests");
+            $stmt = $conn->prepare("INSERT INTO registration_requests (id, username, password_hash, name, role, title, department, email, phone, avatar, status, request_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            foreach ($db['registration_requests'] as $req) {
+                $stmt->execute([
+                    $req['id'],
+                    $req['username'],
+                    $req['password_hash'],
+                    $req['name'],
+                    $req['role'],
+                    $req['title'] ?? '',
+                    $req['department'] ?? '',
+                    $req['email'] ?? '',
+                    $req['phone'] ?? '',
+                    $req['avatar'] ?? null,
+                    $req['status'] ?? 'Pending',
+                    $req['request_date'] ?? ''
+                ]);
+            }
+        }
+        
+        // Activities sync removed to maintain a permanent audit trail in database.
+        
+        // 7. Sync Notification Settings
+        if (isset($db['notification_settings'])) {
+            $conn->exec("DELETE FROM notification_settings");
+            $ns = $db['notification_settings'];
+            $stmt = $conn->prepare("INSERT INTO notification_settings (webhookUrl, notifyOnCreate, notifyOnStatusChange, notifyOnHighRiskOnly) VALUES (?, ?, ?, ?)");
+            $stmt->execute([
+                $ns['webhookUrl'] ?? '',
+                isset($ns['notifyOnCreate']) ? (!empty($ns['notifyOnCreate']) ? 1 : 0) : 1,
+                isset($ns['notifyOnStatusChange']) ? (!empty($ns['notifyOnStatusChange']) ? 1 : 0) : 1,
+                isset($ns['notifyOnHighRiskOnly']) ? (!empty($ns['notifyOnHighRiskOnly']) ? 1 : 0) : 0
+            ]);
+        }
+
+        // 7a. Sync Active Directory Settings
+        if (isset($db['ad_settings'])) {
+            $conn->exec("DELETE FROM ad_settings");
+            $ad = $db['ad_settings'];
+            $stmt = $conn->prepare("INSERT INTO ad_settings (adEnabled, adServer, adPort, adBaseDn, adDomain) VALUES (?, ?, ?, ?, ?)");
+            $stmt->execute([
+                !empty($ad['adEnabled']) ? 1 : 0,
+                $ad['adServer'] ?? '',
+                intval($ad['adPort'] ?? 389),
+                $ad['adBaseDn'] ?? '',
+                $ad['adDomain'] ?? ''
+            ]);
+        }
+        
+        // 8. Sync Changes
+        if (isset($db['changes'])) {
+            $conn->exec("DELETE FROM changes");
+            $conn->exec("DELETE FROM change_tasks");
+            $conn->exec("DELETE FROM change_approvals");
+            $conn->exec("DELETE FROM change_comments");
+            $conn->exec("DELETE FROM change_revisions");
+            
+            $stmtChange = $conn->prepare("INSERT INTO changes (id, title, description, requester, requesterTitle, owner, ownerTitle, category, risk, status, targetDate, impact, rollbackPlan, progress, assignedGroup, ownerUsername, requesterUsername) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmtTask = $conn->prepare("INSERT INTO change_tasks (id, change_id, task_number, text, completed) VALUES (?, ?, ?, ?, ?)");
+            $stmtApproval = $conn->prepare("INSERT INTO change_approvals (id, change_id, role, status, date) VALUES (?, ?, ?, ?, ?)");
+            $stmtComment = $conn->prepare("INSERT INTO change_comments (id, change_id, user, userTitle, text, date) VALUES (?, ?, ?, ?, ?, ?)");
+            $stmtRevision = $conn->prepare("INSERT INTO change_revisions (id, change_id, editor, date, changed_fields) VALUES (?, ?, ?, ?, ?)");
+            
+            foreach ($db['changes'] as $c) {
+                $stmtChange->execute([
+                    $c['id'],
+                    $c['title'],
+                    $c['description'] ?? '',
+                    $c['requester'] ?? '',
+                    $c['requesterTitle'] ?? '',
+                    $c['owner'] ?? '',
+                    $c['ownerTitle'] ?? '',
+                    $c['category'] ?? '',
+                    $c['risk'] ?? '',
+                    $c['status'] ?? '',
+                    $c['targetDate'] ?? '',
+                    $c['impact'] ?? '',
+                    $c['rollbackPlan'] ?? '',
+                    $c['progress'] ?? 0,
+                    $c['assignedGroup'] ?? '',
+                    $c['ownerUsername'] ?? '',
+                    $c['requesterUsername'] ?? ''
+                ]);
+                
+                if (isset($c['tasks']) && is_array($c['tasks'])) {
+                    foreach ($c['tasks'] as $idx => $t) {
+                        $taskDbId = (!empty($t['db_id']) && $t['db_id'] > 0) ? (int)$t['db_id'] : null;
+                        $stmtTask->execute([
+                            $taskDbId,
+                            $c['id'],
+                            $t['id'] ?? $idx,
+                            $t['text'],
+                            !empty($t['completed']) ? 1 : 0
+                        ]);
+                    }
+                }
+                
+                if (isset($c['approvals']) && is_array($c['approvals'])) {
+                    foreach ($c['approvals'] as $app) {
+                        $appDbId = (!empty($app['id']) && $app['id'] > 0) ? (int)$app['id'] : null;
+                        $stmtApproval->execute([
+                            $appDbId,
+                            $c['id'],
+                            $app['role'],
+                            $app['status'] ?? 'Pending',
+                            $app['date'] ?? ''
+                        ]);
+                    }
+                }
+                
+                if (isset($c['comments']) && is_array($c['comments'])) {
+                    foreach ($c['comments'] as $comm) {
+                        $commDbId = (!empty($comm['id']) && $comm['id'] > 0) ? (int)$comm['id'] : null;
+                        $commUser = $comm['user'] ?? $comm['author'] ?? '';
+                        $stmtComment->execute([
+                            $commDbId,
+                            $c['id'],
+                            $commUser,
+                            $comm['userTitle'] ?? '',
+                            $comm['text'],
+                            $comm['date']
+                        ]);
+                    }
+                }
+                
+                if (isset($c['revisions']) && is_array($c['revisions'])) {
+                    foreach ($c['revisions'] as $rev) {
+                        $revDbId = (!empty($rev['id']) && $rev['id'] > 0) ? (int)$rev['id'] : null;
+                        $editor = $rev['editor'] ?? '';
+                        $date = $rev['date'] ?? '';
+                        $changed_fields = is_array($rev['changes']) ? implode(',', $rev['changes']) : ($rev['changes'] ?? '');
+                        $stmtRevision->execute([
+                            $revDbId,
+                            $c['id'],
+                            $editor,
+                            $date,
+                            $changed_fields
+                        ]);
+                    }
+                }
+            }
+        }
+        
+        $conn->commit();
+        releaseDbLock();
+    } catch (Exception $e) {
+        if ($conn->inTransaction()) {
+            $conn->rollBack();
+        }
+        releaseDbLock();
+        http_response_code(500);
+        echo json_encode(['error' => 'Database write failed: ' . $e->getMessage()]);
+        exit;
     }
 }
 
@@ -203,7 +854,7 @@ function createJwt($payload) {
     $header = json_encode(['alg' => 'HS256', 'typ' => 'JWT']);
     $base64UrlHeader = base64UrlEncode($header);
     $base64UrlPayload = base64UrlEncode(json_encode($payload));
-    $signature = hash_hmac('sha256', $base64UrlHeader . "." . $base64UrlPayload, JWT_SECRET, true);
+    $signature = hash_hmac('sha256', $base64UrlHeader . "." . $base64UrlPayload, getJwtSecret(), true);
     $base64UrlSignature = base64UrlEncode($signature);
     return $base64UrlHeader . "." . $base64UrlPayload . "." . $base64UrlSignature;
 }
@@ -217,7 +868,7 @@ function decodeJwt($token) {
     
     // Verify signature
     $signature = base64UrlDecode($base64UrlSignature);
-    $expectedSignature = hash_hmac('sha256', $base64UrlHeader . "." . $base64UrlPayload, JWT_SECRET, true);
+    $expectedSignature = hash_hmac('sha256', $base64UrlHeader . "." . $base64UrlPayload, getJwtSecret(), true);
     if (!hash_equals($signature, $expectedSignature)) {
         return null;
     }
@@ -230,12 +881,27 @@ function getAuthenticatedUser() {
     $headers = getallheaders();
     $authHeader = '';
     
-    if (isset($headers['Authorization'])) {
-        $authHeader = $headers['Authorization'];
-    } elseif (isset($headers['authorization'])) {
-        $authHeader = $headers['authorization'];
-    } elseif (isset($_SERVER['HTTP_AUTHORIZATION'])) {
-        $authHeader = $_SERVER['HTTP_AUTHORIZATION'];
+    // Normalize headers keys to lowercase to be case-insensitive
+    $normalizedHeaders = [];
+    foreach ($headers as $k => $v) {
+        $normalizedHeaders[strtolower($k)] = $v;
+    }
+    
+    // Check all potential candidate headers in order, using the first valid Bearer token
+    $candidates = [
+        $normalizedHeaders['authorization'] ?? '',
+        $normalizedHeaders['x-authorization'] ?? '',
+        $_SERVER['HTTP_AUTHORIZATION'] ?? '',
+        $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '',
+        $_SERVER['HTTP_X_AUTHORIZATION'] ?? '',
+        $_SERVER['REDIRECT_HTTP_X_AUTHORIZATION'] ?? ''
+    ];
+
+    foreach ($candidates as $candidate) {
+        if (!empty($candidate) && preg_match('/Bearer\s(\S+)/', $candidate, $matches)) {
+            $authHeader = $candidate;
+            break;
+        }
     }
 
     if (preg_match('/Bearer\s(\S+)/', $authHeader, $matches)) {
@@ -244,7 +910,7 @@ function getAuthenticatedUser() {
             // Fetch fresh details from DB to prevent stale JWT data (like changed roles)
             $db = readDb();
             foreach ($db['users'] as $u) {
-                if ($u['id'] === $payload['id']) {
+                if ((int)$u['id'] === (int)$payload['id']) {
                     return [
                         'id' => $u['id'],
                         'username' => $u['username'],
@@ -263,32 +929,56 @@ function getAuthenticatedUser() {
     exit;
 }
 
-// --- LOG ACTIVITY HELPER ---
 function logActivity($user, $action, $targetId) {
-    $db = readDb();
     $now = new DateTime();
     $dateStr = $now->format('Y-m-d H:i');
+    $id = round(microtime(true) * 1000);
     
-    array_unshift($db['activities'], [
-        'id' => round(microtime(true) * 1000),
-        'user' => $user,
-        'action' => $action,
-        'target' => $targetId,
-        'date' => $dateStr
-    ]);
-
-    // Keep max 30 activities
-    if (count($db['activities']) > 30) {
-        array_pop($db['activities']);
+    try {
+        $conn = getDbConnection();
+        $stmt = $conn->prepare("INSERT INTO activities (id, user, action, target, date) VALUES (?, ?, ?, ?, ?)");
+        $stmt->execute([
+            $id,
+            $user,
+            $action,
+            $targetId,
+            $dateStr
+        ]);
+        
+        // Keep max 2000 activities to prevent infinite database growth
+        $count = $conn->query("SELECT COUNT(*) FROM activities")->fetchColumn();
+        if ($count > 2000) {
+            $limit = $count - 2000;
+            $conn->exec("DELETE FROM activities WHERE id IN (SELECT id FROM (SELECT id FROM activities ORDER BY id ASC LIMIT $limit) as tmp)");
+        }
+    } catch (PDOException $e) {
+        // Fail silently to prevent user actions from failing due to logging errors
     }
-    
-    writeDb($db);
 }
 
 // --- WEBHOOK NOTIFICATION TRIGGER ---
-function sendWebhookNotification($change, $actionText) {
-    $webhookUrl = WEBHOOK_URL;
+function sendWebhookNotification($change, $actionText, $actionType = 'status_change') {
+    $db = readDb();
+    $settings = $db['notification_settings'] ?? null;
+    if (!$settings) return;
+    
+    $webhookUrl = $settings['webhookUrl'] ?? '';
     if (empty($webhookUrl)) return;
+    
+    // Check high risk filter
+    $notifyOnHighRiskOnly = !empty($settings['notifyOnHighRiskOnly']);
+    if ($notifyOnHighRiskOnly && $change['risk'] !== 'High') {
+        return;
+    }
+    
+    // Check action type filter
+    if ($actionType === 'create') {
+        $notifyOnCreate = isset($settings['notifyOnCreate']) ? !empty($settings['notifyOnCreate']) : true;
+        if (!$notifyOnCreate) return;
+    } else {
+        $notifyOnStatusChange = isset($settings['notifyOnStatusChange']) ? !empty($settings['notifyOnStatusChange']) : true;
+        if (!$notifyOnStatusChange) return;
+    }
     
     $color = '#a78bfa'; // Purple default
     if ($change['risk'] === 'High' || $change['status'] === 'Rolled Back' || $change['status'] === 'Rejected') {
@@ -334,12 +1024,25 @@ function sendWebhookNotification($change, $actionText) {
 // --- API ACTIONS HANDLER ---
 $action = $_GET['action'] ?? '';
 $input = json_decode(file_get_contents('php://input'), true) ?: [];
+$rawInput = $input; // Maintain compatibility for $rawInput usages
 
 switch ($action) {
+    // 1b. Get Public Login Configuration (Unauthenticated)
+    case 'get_login_config':
+        $db = readDb();
+        $ad = $db['ad_settings'] ?? null;
+        echo json_encode([
+            'adEnabled' => $ad ? !empty($ad['adEnabled']) : false,
+            'adDomain' => $ad ? ($ad['adDomain'] ?? '') : ''
+        ]);
+        break;
+
     // 1. User Login
     case 'login':
         $username = trim($input['username'] ?? '');
-        $password = $input['password'] ?? '';
+        $password = $rawInput['password'] ?? '';
+        $authType = $input['authType'] ?? 'local';
+        $selectedDomain = trim($input['adDomain'] ?? '');
         
         if (empty($username) || empty($password)) {
             http_response_code(400);
@@ -347,23 +1050,232 @@ switch ($action) {
             break;
         }
 
+        // Handle DOMAIN\username or DOMAIN/username formats (strip domain prefix)
+        $cleanUsername = $username;
+        if (strpos($cleanUsername, '\\') !== false) {
+            $parts = explode('\\', $cleanUsername, 2);
+            $cleanUsername = $parts[1];
+        } elseif (strpos($cleanUsername, '/') !== false) {
+            $parts = explode('/', $cleanUsername, 2);
+            $cleanUsername = $parts[1];
+        }
+        // Handle UPN format: alice@domain.com -> alice (for local login lookup)
+        // Note: for LDAP login the full UPN is used as bindUser, so we preserve the original
+        $localUsername = $cleanUsername;
+        if ($authType === 'local' && strpos($localUsername, '@') !== false) {
+            $atParts = explode('@', $localUsername, 2);
+            $localUsername = $atParts[0];
+        }
+
         $db = readDb();
         
+        $ad = $db['ad_settings'] ?? null;
+        $adAuthenticated = false;
+        $adUserAttrs = [];
+
+        // Check if LDAP login is requested but disabled or not configured
+        if ($authType === 'ldap') {
+            if (!$ad || empty($ad['adEnabled'])) {
+                http_response_code(400);
+                echo json_encode(['error' => 'Active Directory authentication is disabled on this server.']);
+                break;
+            }
+            if (!function_exists('ldap_connect')) {
+                http_response_code(500);
+                echo json_encode(['error' => 'PHP LDAP extension is not enabled on this server. Check your php.ini configurations.']);
+                break;
+            }
+        }
+
+        // Try Active Directory authentication if requested, enabled and extension exists
+        if ($authType === 'ldap' && $ad && !empty($ad['adEnabled']) && function_exists('ldap_connect')) {
+            $ldapconn = @ldap_connect($ad['adServer'], intval($ad['adPort'] ?? 389));
+            if (!$ldapconn) {
+                http_response_code(503);
+                echo json_encode(['error' => 'Could not establish connection to the LDAP server. Check the server address and port in Settings.']);
+                break;
+            }
+
+            ldap_set_option($ldapconn, LDAP_OPT_PROTOCOL_VERSION, 3);
+            ldap_set_option($ldapconn, LDAP_OPT_REFERRALS, 0);
+            ldap_set_option($ldapconn, LDAP_OPT_NETWORK_TIMEOUT, 5);
+
+            // Prepare bind DN / UPN
+            $bindUser = $cleanUsername;
+            $domainToUse = !empty($selectedDomain) ? $selectedDomain : ($ad['adDomain'] ?? '');
+            
+            // If there's multiple comma separated domains, and none selected, default to the first one
+            if (!empty($domainToUse)) {
+                $domains = array_map('trim', explode(',', $domainToUse));
+                $domainToUse = $domains[0];
+            }
+
+            if (!empty($domainToUse)) {
+                $domainSuffix = (strpos($domainToUse, '@') === 0) ? $domainToUse : '@' . $domainToUse;
+                if (strpos($cleanUsername, '@') === false) {
+                    $bindUser = $cleanUsername . $domainSuffix;
+                }
+            }
+
+            $ldapbind = @ldap_bind($ldapconn, $bindUser, $password);
+            if ($ldapbind) {
+                $adAuthenticated = true;
+                
+                // Search user details in Active Directory
+                $baseDn = $ad['adBaseDn'] ?: '';
+                if (!empty($baseDn)) {
+                    // Escape special characters to prevent LDAP injection
+                    $escapedUsername = ldap_escape($cleanUsername, '', LDAP_ESCAPE_FILTER);
+                    $escapedBindUser = ldap_escape($bindUser, '', LDAP_ESCAPE_FILTER);
+                    $filter = "(|(sAMAccountName={$escapedUsername})(userPrincipalName={$escapedBindUser})(mail={$escapedUsername}))";
+                    $search = @ldap_search($ldapconn, $baseDn, $filter, ['displayname', 'mail', 'department', 'title']);
+                    if ($search) {
+                        $entries = @ldap_get_entries($ldapconn, $search);
+                        if ($entries && $entries['count'] > 0) {
+                            $entry = $entries[0];
+                            $adUserAttrs = [
+                                'name' => $entry['displayname'][0] ?? $cleanUsername,
+                                'email' => $entry['mail'][0] ?? '',
+                                'department' => $entry['department'][0] ?? 'IT Operations',
+                                'title' => $entry['title'][0] ?? 'Systems Engineer'
+                            ];
+                        }
+                    }
+                }
+
+                if (empty($adUserAttrs)) {
+                    $adUserAttrs = [
+                        'name' => $cleanUsername,
+                        'email' => '',
+                        'department' => 'IT Operations',
+                        'title' => 'Systems Engineer'
+                    ];
+                }
+            } else {
+                // Get detailed LDAP error for better debugging
+                $ldapErrNo = ldap_errno($ldapconn);
+                $ldapErrStr = ldap_error($ldapconn);
+                // Error 49 = Invalid credentials (wrong username/password)
+                // Other errors = connection/server issues
+                if ($ldapErrNo === 49) {
+                    $adAuthenticated = false;
+                } else {
+                    http_response_code(503);
+                    echo json_encode(['error' => "LDAP server error ({$ldapErrNo}): {$ldapErrStr}"]);
+                    @ldap_close($ldapconn);
+                    break;
+                }
+            }
+            @ldap_close($ldapconn);
+        }
+
         $user = null;
-        foreach ($db['users'] as $u) {
-            if (strtolower($u['username']) === strtolower($username)) {
-                $user = $u;
+        if ($authType === 'ldap') {
+            if ($adAuthenticated) {
+                // Find or Provision User in local DB (JIT Provisioning)
+                $userIdx = -1;
+                for ($i = 0; $i < count($db['users']); $i++) {
+                    if (strcasecmp($db['users'][$i]['username'], $cleanUsername) === 0) {
+                        $userIdx = $i;
+                        break;
+                    }
+                }
+
+                if ($userIdx !== -1) {
+                    // Update existing user with AD attributes
+                    $db['users'][$userIdx]['name'] = $adUserAttrs['name'];
+                    if (!empty($adUserAttrs['email'])) $db['users'][$userIdx]['email'] = $adUserAttrs['email'];
+                    if (!empty($adUserAttrs['department'])) $db['users'][$userIdx]['department'] = $adUserAttrs['department'];
+                    if (!empty($adUserAttrs['title'])) $db['users'][$userIdx]['title'] = $adUserAttrs['title'];
+                    $user = $db['users'][$userIdx];
+                    // Update in DB directly to avoid full writeDb overhead
+                    try {
+                        $conn = getDbConnection();
+                        $stmt = $conn->prepare("UPDATE users SET name=?, email=?, department=?, title=? WHERE id=?");
+                        $stmt->execute([
+                            $adUserAttrs['name'],
+                            !empty($adUserAttrs['email']) ? $adUserAttrs['email'] : $db['users'][$userIdx]['email'],
+                            !empty($adUserAttrs['department']) ? $adUserAttrs['department'] : $db['users'][$userIdx]['department'],
+                            !empty($adUserAttrs['title']) ? $adUserAttrs['title'] : $db['users'][$userIdx]['title'],
+                            $db['users'][$userIdx]['id']
+                        ]);
+                    } catch (PDOException $ex) { /* fail silently */ }
+                } else {
+                    // JIT Provision new user - insert directly into DB
+                    $validDepts = $db['departments'] ?? [];
+                    if (!in_array($adUserAttrs['department'], $validDepts)) {
+                        try {
+                            $conn = getDbConnection();
+                            $stmt = $conn->prepare("INSERT IGNORE INTO departments (name) VALUES (?)");
+                            $stmt->execute([$adUserAttrs['department']]);
+                        } catch (PDOException $ex) { /* fail silently */ }
+                    }
+
+                    try {
+                        $conn = getDbConnection();
+                        $stmt = $conn->prepare("INSERT INTO users (username, password_hash, name, role, title, department, email, phone, avatar, status, `group`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                        $stmt->execute([
+                            strtolower($cleanUsername),
+                            password_hash($password, PASSWORD_BCRYPT),
+                            $adUserAttrs['name'],
+                            'Requester',
+                            $adUserAttrs['title'],
+                            $adUserAttrs['department'],
+                            $adUserAttrs['email'],
+                            '',
+                            '',
+                            'Working',
+                            'IT Operations'
+                        ]);
+                        $newId = (int)$conn->lastInsertId();
+                        $user = [
+                            'id'           => $newId,
+                            'username'     => strtolower($cleanUsername),
+                            'name'         => $adUserAttrs['name'],
+                            'role'         => 'Requester',
+                            'title'        => $adUserAttrs['title'],
+                            'department'   => $adUserAttrs['department'],
+                            'email'        => $adUserAttrs['email'],
+                            'phone'        => '',
+                            'avatar'       => '',
+                            'status'       => 'Working',
+                            'group'        => 'IT Operations',
+                            'password_hash'=> ''
+                        ];
+                    } catch (PDOException $ex) {
+                        http_response_code(500);
+                        echo json_encode(['error' => 'Failed to provision AD user in local database: ' . $ex->getMessage()]);
+                        break;
+                    }
+                }
+            } else {
+                http_response_code(401);
+                echo json_encode(['error' => 'Invalid Active Directory username or password.']);
+                break;
+            }
+        } else {
+            // Standard validation (Local DB Fallback)
+            foreach ($db['users'] as $u) {
+                if (strtolower($u['username']) === strtolower($localUsername)) {
+                    $user = $u;
+                    break;
+                }
+            }
+
+            if ($user) {
+                if (!password_verify($password, $user['password_hash'])) {
+                    http_response_code(401);
+                    echo json_encode(['error' => 'Invalid username or password.']);
+                    break;
+                }
+            } else {
+                http_response_code(401);
+                echo json_encode(['error' => 'Invalid username or password.']);
                 break;
             }
         }
 
         if ($user) {
-            if (!password_verify($password, $user['password_hash'])) {
-                http_response_code(401);
-                echo json_encode(['error' => 'Invalid username or password.']);
-                break;
-            }
-
             $tokenPayload = [
                 'id' => $user['id'],
                 'username' => $user['username'],
@@ -386,7 +1298,8 @@ switch ($action) {
                     'phone' => $user['phone'] ?? '',
                     'avatar' => $user['avatar'] ?? '',
                     'department' => $user['department'] ?? '',
-                    'status' => $user['status'] ?? ''
+                    'status' => $user['status'] ?? '',
+                    'group' => $user['group'] ?? ''
                 ]
             ]);
         } else {
@@ -426,7 +1339,7 @@ switch ($action) {
     case 'register':
         $name = trim($input['name'] ?? '');
         $username = trim($input['username'] ?? '');
-        $password = $input['password'] ?? '';
+        $password = $rawInput['password'] ?? '';
         $title = trim($input['title'] ?? 'IT Operations');
         $role = $input['role'] ?? 'Requester';
         $department = trim($input['department'] ?? 'IT Operations');
@@ -474,7 +1387,7 @@ switch ($action) {
             if (strtolower($u['username']) === strtolower($username)) {
                 http_response_code(409);
                 echo json_encode(['error' => 'This username is already taken or pending approval.']);
-                exit;
+                break 2;
             }
         }
 
@@ -484,7 +1397,7 @@ switch ($action) {
                 if (strtolower($req['username']) === strtolower($username) && $req['status'] !== 'Rejected') {
                     http_response_code(409);
                     echo json_encode(['error' => 'This username is already taken or pending approval.']);
-                    exit;
+                    break 2;
                 }
             }
         }
@@ -524,7 +1437,7 @@ switch ($action) {
         $db = readDb();
         $user = null;
         foreach ($db['users'] as $u) {
-            if ($u['id'] === $userPayload['id']) {
+            if ((int)$u['id'] === (int)$userPayload['id']) {
                 $user = $u;
                 break;
             }
@@ -547,7 +1460,8 @@ switch ($action) {
                 'phone' => $user['phone'] ?? '',
                 'avatar' => $user['avatar'] ?? '',
                 'department' => $user['department'] ?? '',
-                'status' => $user['status'] ?? ''
+                'status' => $user['status'] ?? '',
+                'group' => $user['group'] ?? ''
             ]
         ]);
         break;
@@ -561,7 +1475,7 @@ switch ($action) {
         $email = trim($input['email'] ?? '');
         $phone = trim($input['phone'] ?? '');
         $avatar = $input['avatar'] ?? null;
-        $newPassword = $input['newPassword'] ?? '';
+        $newPassword = $rawInput['newPassword'] ?? '';
         $department = trim($input['department'] ?? '');
 
         if (empty($name)) {
@@ -612,10 +1526,9 @@ switch ($action) {
             }
         }
 
-        $db = readDb();
         $userIdx = -1;
         for ($i = 0; $i < count($db['users']); $i++) {
-            if ($db['users'][$i]['id'] === $userPayload['id']) {
+            if ((int)$db['users'][$i]['id'] === (int)$userPayload['id']) {
                 $userIdx = $i;
                 break;
             }
@@ -627,8 +1540,14 @@ switch ($action) {
             break;
         }
 
-        if ($avatar !== null && !empty($avatar)) {
-            if (preg_match('/^data:image\/(png|jpeg|jpg|webp);base64,/', $avatar, $matches)) {
+        if ($avatar !== null) {
+            if (empty($avatar)) {
+                $oldAvatar = $db['users'][$userIdx]['avatar'] ?? '';
+                if (!empty($oldAvatar) && strpos($oldAvatar, 'avatars/') === 0 && file_exists(__DIR__ . '/' . $oldAvatar)) {
+                    unlink(__DIR__ . '/' . $oldAvatar);
+                }
+                $avatar = '';
+            } elseif (preg_match('/^data:image\/(png|jpeg|jpg|webp);base64,/', $avatar, $matches)) {
                 if (strlen($avatar) > 1500000) {
                     http_response_code(400);
                     echo json_encode(['error' => 'Avatar image size exceeds the allowed 1MB limit.']);
@@ -742,7 +1661,8 @@ switch ($action) {
                 'email' => $u['email'] ?? '',
                 'phone' => $u['phone'] ?? '',
                 'avatar' => $u['avatar'] ?? '',
-                'department' => $u['department'] ?? ''
+                'department' => $u['department'] ?? '',
+                'group' => $u['group'] ?? ''
             ];
         }
 
@@ -822,7 +1742,8 @@ switch ($action) {
             'department' => $req['department'],
             'email' => $req['email'] ?? '',
             'phone' => $req['phone'] ?? '',
-            'avatar' => $req['avatar'] ?? ''
+            'avatar' => $req['avatar'] ?? '',
+            'group' => $req['group'] ?? ''
         ];
 
         $db['users'][] = $newUser;
@@ -906,7 +1827,7 @@ switch ($action) {
             break;
         }
 
-        if ($targetUserId === $admin['id']) {
+        if ((int)$targetUserId === (int)$admin['id']) {
             http_response_code(400);
             echo json_encode(['error' => 'You cannot modify your own administrator role.']);
             break;
@@ -915,7 +1836,7 @@ switch ($action) {
         $db = readDb();
         $userIdx = -1;
         for ($i = 0; $i < count($db['users']); $i++) {
-            if ($db['users'][$i]['id'] === $targetUserId) {
+            if ((int)$db['users'][$i]['id'] === (int)$targetUserId) {
                 $userIdx = $i;
                 break;
             }
@@ -957,8 +1878,9 @@ switch ($action) {
         $email = trim($input['email'] ?? '');
         $phone = trim($input['phone'] ?? '');
         $department = trim($input['department'] ?? '');
+        $group = trim($input['group'] ?? '');
         $role = trim($input['role'] ?? '');
-        $newPassword = $input['newPassword'] ?? '';
+        $newPassword = $rawInput['newPassword'] ?? '';
 
         if (empty($name)) {
             http_response_code(400);
@@ -998,6 +1920,13 @@ switch ($action) {
             break;
         }
 
+        $validGroups = $db['groups'] ?? [];
+        if (!empty($group) && !in_array($group, $validGroups)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Invalid group selected.']);
+            break;
+        }
+
         $allowedRoles = ['Requester', 'CAB Approver', 'Administrator'];
         if (!in_array($role, $allowedRoles)) {
             http_response_code(400);
@@ -1005,7 +1934,7 @@ switch ($action) {
             break;
         }
 
-        if ($targetUserId === $admin['id'] && $role !== 'Administrator') {
+        if ((int)$targetUserId === (int)$admin['id'] && $role !== 'Administrator') {
             http_response_code(400);
             echo json_encode(['error' => 'You cannot modify your own administrator role.']);
             break;
@@ -1021,7 +1950,7 @@ switch ($action) {
 
         $userIdx = -1;
         for ($i = 0; $i < count($db['users']); $i++) {
-            if ($db['users'][$i]['id'] === $targetUserId) {
+            if ((int)$db['users'][$i]['id'] === (int)$targetUserId) {
                 $userIdx = $i;
                 break;
             }
@@ -1039,6 +1968,7 @@ switch ($action) {
         $db['users'][$userIdx]['email'] = $email;
         $db['users'][$userIdx]['phone'] = $phone;
         $db['users'][$userIdx]['department'] = $department;
+        $db['users'][$userIdx]['group'] = $group;
         $db['users'][$userIdx]['role'] = $role;
 
         if (!empty($newPassword)) {
@@ -1059,19 +1989,21 @@ switch ($action) {
                 'title' => $db['users'][$userIdx]['title'],
                 'email' => $db['users'][$userIdx]['email'],
                 'phone' => $db['users'][$userIdx]['phone'],
-                'department' => $db['users'][$userIdx]['department']
+                'department' => $db['users'][$userIdx]['department'],
+                'group' => $db['users'][$userIdx]['group']
             ]
         ];
 
         // If the admin updated themselves, regenerate token
-        if ($targetUserId === $admin['id']) {
+        if ((int)$targetUserId === (int)$admin['id']) {
             $newTokenPayload = [
                 'id' => $db['users'][$userIdx]['id'],
                 'username' => $db['users'][$userIdx]['username'],
                 'name' => $db['users'][$userIdx]['name'],
                 'role' => $db['users'][$userIdx]['role'],
                 'title' => $db['users'][$userIdx]['title'],
-                'department' => $db['users'][$userIdx]['department']
+                'department' => $db['users'][$userIdx]['department'],
+                'group' => $db['users'][$userIdx]['group']
             ];
             $response['token'] = createJwt($newTokenPayload);
         }
@@ -1136,6 +2068,7 @@ switch ($action) {
         $targetDate = $input['targetDate'] ?? '';
         $impact = trim($input['impact'] ?? '');
         $rollbackPlan = trim($input['rollbackPlan'] ?? '');
+        $assignedGroup = trim($input['assignedGroup'] ?? '');
         $tasksInput = $input['tasks'] ?? [];
 
         if (empty($title) || empty($description) || empty($category) || empty($risk) || empty($targetDate) || empty($impact) || empty($rollbackPlan) || empty($tasksInput)) {
@@ -1171,6 +2104,24 @@ switch ($action) {
         }
 
         $db = readDb();
+        
+        $ownerUsername = $user['username'];
+        if ($owner !== $user['name']) {
+            foreach ($db['users'] as $u) {
+                if (strcasecmp($u['name'], $owner) === 0) {
+                    $ownerUsername = $u['username'];
+                    break;
+                }
+            }
+        }
+        
+        $validGroups = $db['groups'] ?? [];
+        if (!empty($assignedGroup) && !in_array($assignedGroup, $validGroups)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Invalid assigned group selected.']);
+            break;
+        }
+
         $nextNumber = 1001;
         foreach ($db['changes'] as $c) {
             $parts = explode('-', $c['id']);
@@ -1211,8 +2162,10 @@ switch ($action) {
             'title' => $title,
             'description' => $description,
             'requester' => empty($requester) ? $user['name'] : $requester,
+            'requesterUsername' => $user['username'],
             'requesterTitle' => empty($requesterTitle) ? $user['title'] : $requesterTitle,
             'owner' => empty($owner) ? $user['name'] : $owner,
+            'ownerUsername' => $ownerUsername,
             'ownerTitle' => empty($ownerTitle) ? $user['title'] : $ownerTitle,
             'category' => $category,
             'risk' => $risk,
@@ -1225,14 +2178,16 @@ switch ($action) {
             'approvals' => [
                 ['role' => 'CAB (Change Advisory Board)', 'status' => 'Pending', 'date' => '']
             ],
-            'comments' => []
+            'comments' => [],
+            'assignedGroup' => $assignedGroup,
+            'revisions' => []
         ];
 
         array_unshift($db['changes'], $newChange);
         writeDb($db);
 
         logActivity($user['name'], "created a new change request: \"{$title}\"", $newId);
-        sendWebhookNotification($newChange, "created by {$user['name']}");
+        sendWebhookNotification($newChange, "created by {$user['name']}", "create");
 
         http_response_code(201);
         echo json_encode(['change' => $newChange]);
@@ -1330,7 +2285,7 @@ switch ($action) {
         } else {
             // For non-approval states, only Admins or Owners/Requesters can transition
             if ($user['role'] !== 'Administrator') {
-                if ($change['owner'] !== $user['name'] && $change['requester'] !== $user['name']) {
+                if (($change['ownerUsername'] ?? '') !== $user['username'] && ($change['requesterUsername'] ?? '') !== $user['username']) {
                     http_response_code(403);
                     echo json_encode(['error' => 'You can only update workflows for change requests you own.']);
                     break;
@@ -1394,7 +2349,7 @@ switch ($action) {
         }
 
         // Enable checks for change owner, requester, or admins
-        if ($user['role'] !== 'Administrator' && $change['owner'] !== $user['name'] && $change['requester'] !== $user['name']) {
+        if ($user['role'] !== 'Administrator' && ($change['ownerUsername'] ?? '') !== $user['username'] && ($change['requesterUsername'] ?? '') !== $user['username']) {
             http_response_code(403);
             echo json_encode(['error' => 'You can only update task checklists for requests you own.']);
             break;
@@ -1464,6 +2419,8 @@ switch ($action) {
 
         $newComment = [
             'author' => $user['name'],
+            'user' => $user['name'],
+            'userTitle' => $user['title'] ?? '',
             'text' => $text,
             'date' => $dateStr
         ];
@@ -1513,7 +2470,7 @@ switch ($action) {
             break;
         }
 
-        if ($user['role'] !== 'Administrator' && $change['owner'] !== $user['name'] && $change['requester'] !== $user['name']) {
+        if ($user['role'] !== 'Administrator' && ($change['ownerUsername'] ?? '') !== $user['username'] && ($change['requesterUsername'] ?? '') !== $user['username']) {
             http_response_code(403);
             echo json_encode(['error' => 'You can only delete draft change requests that you own.']);
             break;
@@ -1529,9 +2486,101 @@ switch ($action) {
 
     // 15. Get Activities Feed List
     case 'activities':
-        getAuthenticatedUser();
+        $user = getAuthenticatedUser();
+        if ($user['role'] !== 'Administrator') {
+            http_response_code(403);
+            echo json_encode(['error' => 'Forbidden. Administrator privileges required.']);
+            break;
+        }
         $db = readDb();
         echo json_encode(['activities' => $db['activities']]);
+        break;
+
+    // 15a. Check Change Conflicts
+    case 'check_conflicts':
+        getAuthenticatedUser();
+        $date = trim($input['date'] ?? '');
+        $category = trim($input['category'] ?? '');
+        $assignedGroup = trim($input['assignedGroup'] ?? '');
+        $excludeId = trim($input['excludeId'] ?? '');
+        
+        if (empty($date)) {
+            echo json_encode(['conflicts' => []]);
+            break;
+        }
+        
+        $conn = getDbConnection();
+        $stmt = $conn->prepare("
+            SELECT id, title, targetDate, category, assignedGroup, risk, requester 
+            FROM changes 
+            WHERE LOWER(status) NOT IN ('completed', 'rejected', 'rolled back', 'rolled-back', 'rollback')
+              AND targetDate = ?
+              AND id != ?
+              AND (
+                (? != '' AND category = ?) OR 
+                (? != '' AND assignedGroup = ?)
+              )
+        ");
+        $stmt->execute([$date, $excludeId, $category, $category, $assignedGroup, $assignedGroup]);
+        $conflicts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        echo json_encode(['conflicts' => $conflicts]);
+        break;
+
+    // 15b. Get Change Metrics & Analytics
+    case 'get_analytics':
+        getAuthenticatedUser();
+        $conn = getDbConnection();
+        
+        // 1. Status Distribution
+        $stmt = $conn->query("SELECT status, COUNT(*) as count FROM changes GROUP BY status");
+        $statusDistribution = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // 2. Risk Distribution
+        $stmt = $conn->query("SELECT risk, COUNT(*) as count FROM changes GROUP BY risk");
+        $riskDistribution = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // 3. Category Distribution
+        $stmt = $conn->query("SELECT category, COUNT(*) as count FROM changes GROUP BY category");
+        $categoryDistribution = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // 4. Department Distribution
+        $stmt = $conn->query("
+            SELECT u.department, COUNT(*) as count 
+            FROM changes c 
+            JOIN users u ON c.requesterUsername = u.username 
+            WHERE u.department IS NOT NULL AND u.department != ''
+            GROUP BY u.department
+        ");
+        $departmentDistribution = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // 5. Success rate and metrics
+        $totalChanges = intval($conn->query("SELECT COUNT(*) FROM changes")->fetchColumn());
+        $completedChanges = intval($conn->query("SELECT COUNT(*) FROM changes WHERE LOWER(status) = 'completed'")->fetchColumn());
+        $rejectedChanges = intval($conn->query("SELECT COUNT(*) FROM changes WHERE LOWER(status) = 'rejected'")->fetchColumn());
+        $rolledBackChanges = intval($conn->query("SELECT COUNT(*) FROM changes WHERE LOWER(status) IN ('rolled back', 'rolled-back', 'rollback')")->fetchColumn());
+        $pendingApprovals = intval($conn->query("SELECT COUNT(*) FROM changes WHERE LOWER(status) IN ('pending approval', 'pending-approval')")->fetchColumn());
+        
+        $successRate = 100.0;
+        $totalEvaluated = $completedChanges + $rejectedChanges + $rolledBackChanges;
+        if ($totalEvaluated > 0) {
+            $successRate = round(($completedChanges / $totalEvaluated) * 100, 1);
+        }
+        
+        echo json_encode([
+            'statusDistribution' => $statusDistribution,
+            'riskDistribution' => $riskDistribution,
+            'categoryDistribution' => $categoryDistribution,
+            'departmentDistribution' => $departmentDistribution,
+            'kpis' => [
+                'total' => $totalChanges,
+                'completed' => $completedChanges,
+                'rejected' => $rejectedChanges,
+                'rolledBack' => $rolledBackChanges,
+                'pendingApprovals' => $pendingApprovals,
+                'successRate' => $successRate
+            ]
+        ]);
         break;
 
     // 16. Get Departments List
@@ -1590,6 +2639,19 @@ switch ($action) {
             break;
         }
         $db['departments'] = array_values(array_diff($db['departments'], [$name]));
+        
+        // Re-map users in deleted department to 'IT Operations' to avoid orphans
+        if (!in_array('IT Operations', $db['departments'])) {
+            $db['departments'][] = 'IT Operations';
+        }
+        if (isset($db['users'])) {
+            for ($i = 0; $i < count($db['users']); $i++) {
+                if (isset($db['users'][$i]['department']) && $db['users'][$i]['department'] === $name) {
+                    $db['users'][$i]['department'] = 'IT Operations';
+                }
+            }
+        }
+
         writeDb($db);
         logActivity($admin['name'], "deleted department: \"{$name}\"", "DEPT-DEL");
         echo json_encode(['success' => true, 'departments' => $db['departments']]);
@@ -1642,6 +2704,19 @@ switch ($action) {
             break;
         }
         $db['categories'] = array_values(array_diff($db['categories'], [$name]));
+        
+        // Re-map changes in deleted category to 'General' to avoid orphans
+        if (!in_array('General', $db['categories'])) {
+            $db['categories'][] = 'General';
+        }
+        if (isset($db['changes'])) {
+            for ($i = 0; $i < count($db['changes']); $i++) {
+                if (isset($db['changes'][$i]['category']) && $db['changes'][$i]['category'] === $name) {
+                    $db['changes'][$i]['category'] = 'General';
+                }
+            }
+        }
+
         writeDb($db);
         logActivity($admin['name'], "deleted change category: \"{$name}\"", "CAT-DEL");
         echo json_encode(['success' => true, 'categories' => $db['categories']]);
@@ -1685,7 +2760,7 @@ switch ($action) {
 
         $change = $db['changes'][$changeIdx];
 
-        if ($user['role'] !== 'Administrator' && $change['owner'] !== $user['name'] && $change['requester'] !== $user['name']) {
+        if ($user['role'] !== 'Administrator' && ($change['ownerUsername'] ?? '') !== $user['username'] && ($change['requesterUsername'] ?? '') !== $user['username']) {
             http_response_code(403);
             echo json_encode(['error' => 'You can only upload attachments to change requests you own.']);
             break;
@@ -1778,7 +2853,7 @@ switch ($action) {
 
         $change = $db['changes'][$changeIdx];
 
-        if ($user['role'] !== 'Administrator' && $change['owner'] !== $user['name'] && $change['requester'] !== $user['name']) {
+        if ($user['role'] !== 'Administrator' && ($change['ownerUsername'] ?? '') !== $user['username'] && ($change['requesterUsername'] ?? '') !== $user['username']) {
             http_response_code(403);
             echo json_encode(['error' => 'You can only delete attachments from change requests you own.']);
             break;
@@ -1797,6 +2872,415 @@ switch ($action) {
         logActivity($user['name'], "deleted attachment '{$oldName}'", $id);
 
         echo json_encode(['success' => true]);
+        break;
+
+    // 23. Get User Groups
+    case 'get_groups':
+        getAuthenticatedUser(); // Verify token
+        $db = readDb();
+        echo json_encode(['groups' => $db['groups'] ?? []]);
+        break;
+
+    // 24. Add Group (Admin Only)
+    case 'add_group':
+        $admin = getAuthenticatedUser();
+        if ($admin['role'] !== 'Administrator') {
+            http_response_code(403);
+            echo json_encode(['error' => 'Forbidden. Administrator privileges required.']);
+            break;
+        }
+        $name = trim($input['name'] ?? '');
+        if (empty($name)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Group name is required.']);
+            break;
+        }
+        $db = readDb();
+        if (!isset($db['groups'])) {
+            $db['groups'] = [];
+        }
+        if (in_array($name, $db['groups'])) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Group already exists.']);
+            break;
+        }
+        $db['groups'][] = $name;
+        writeDb($db);
+        logActivity($admin['name'], "added a new group: \"{$name}\"", "GRP-NEW");
+        echo json_encode(['success' => true, 'groups' => $db['groups']]);
+        break;
+
+    // 25. Delete Group (Admin Only)
+    case 'delete_group':
+        $admin = getAuthenticatedUser();
+        if ($admin['role'] !== 'Administrator') {
+            http_response_code(403);
+            echo json_encode(['error' => 'Forbidden. Administrator privileges required.']);
+            break;
+        }
+        $name = trim($input['name'] ?? '');
+        if (empty($name)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Group name is required.']);
+            break;
+        }
+        $db = readDb();
+        if (!isset($db['groups']) || !in_array($name, $db['groups'])) {
+            http_response_code(404);
+            echo json_encode(['error' => 'Group not found.']);
+            break;
+        }
+        $db['groups'] = array_values(array_diff($db['groups'], [$name]));
+        
+        // Re-map users in deleted group to 'IT Operations' to avoid orphans
+        if (!in_array('IT Operations', $db['groups'])) {
+            $db['groups'][] = 'IT Operations';
+        }
+        if (isset($db['users'])) {
+            for ($i = 0; $i < count($db['users']); $i++) {
+                if (isset($db['users'][$i]['group']) && $db['users'][$i]['group'] === $name) {
+                    $db['users'][$i]['group'] = 'IT Operations';
+                }
+            }
+        }
+
+        writeDb($db);
+        logActivity($admin['name'], "deleted group: \"{$name}\"", "GRP-DEL");
+        echo json_encode(['success' => true, 'groups' => $db['groups']]);
+        break;
+
+    // 26. Get Webhook Notification Settings
+    case 'get_notification_settings':
+        $admin = getAuthenticatedUser();
+        if ($admin['role'] !== 'Administrator') {
+            http_response_code(403);
+            echo json_encode(['error' => 'Forbidden. Administrator privileges required.']);
+            break;
+        }
+        $db = readDb();
+        echo json_encode(['notification_settings' => $db['notification_settings'] ?? [
+            "webhookUrl" => "",
+            "notifyOnCreate" => true,
+            "notifyOnStatusChange" => true,
+            "notifyOnHighRiskOnly" => false
+        ]]);
+        break;
+
+    // 27. Update Webhook Notification Settings (Admin Only)
+    case 'update_notification_settings':
+        $admin = getAuthenticatedUser();
+        if ($admin['role'] !== 'Administrator') {
+            http_response_code(403);
+            echo json_encode(['error' => 'Forbidden. Administrator privileges required.']);
+            break;
+        }
+        $webhookUrl = trim($input['webhookUrl'] ?? '');
+        $notifyOnCreate = !empty($input['notifyOnCreate']);
+        $notifyOnStatusChange = !empty($input['notifyOnStatusChange']);
+        $notifyOnHighRiskOnly = !empty($input['notifyOnHighRiskOnly']);
+
+        $db = readDb();
+        $db['notification_settings'] = [
+            "webhookUrl" => $webhookUrl,
+            "notifyOnCreate" => $notifyOnCreate,
+            "notifyOnStatusChange" => $notifyOnStatusChange,
+            "notifyOnHighRiskOnly" => $notifyOnHighRiskOnly
+        ];
+        writeDb($db);
+        logActivity($admin['name'], "updated webhook notification settings", "NOTIFICATION-SETTINGS");
+        echo json_encode(['success' => true, 'notification_settings' => $db['notification_settings']]);
+        break;
+
+    // 27a. Get Active Directory Settings (Admin Only)
+    case 'get_ad_settings':
+        $admin = getAuthenticatedUser();
+        if ($admin['role'] !== 'Administrator') {
+            http_response_code(403);
+            echo json_encode(['error' => 'Forbidden. Administrator privileges required.']);
+            break;
+        }
+        $db = readDb();
+        echo json_encode(['ad_settings' => $db['ad_settings'] ?? [
+            "adEnabled" => false,
+            "adServer" => "",
+            "adPort" => 389,
+            "adBaseDn" => "",
+            "adDomain" => ""
+        ]]);
+        break;
+
+    // 27b. Update Active Directory Settings (Admin Only)
+    case 'update_ad_settings':
+        $admin = getAuthenticatedUser();
+        if ($admin['role'] !== 'Administrator') {
+            http_response_code(403);
+            echo json_encode(['error' => 'Forbidden. Administrator privileges required.']);
+            break;
+        }
+        $adEnabled = !empty($input['adEnabled']);
+        $adServer = trim($input['adServer'] ?? '');
+        $adPort = intval($input['adPort'] ?? 389);
+        $adBaseDn = trim($input['adBaseDn'] ?? '');
+        $adDomain = trim($input['adDomain'] ?? '');
+
+        $db = readDb();
+        $db['ad_settings'] = [
+            "adEnabled" => $adEnabled,
+            "adServer" => $adServer,
+            "adPort" => $adPort,
+            "adBaseDn" => $adBaseDn,
+            "adDomain" => $adDomain
+        ];
+        writeDb($db);
+        logActivity($admin['name'], "updated Active Directory settings", "AD-SETTINGS");
+        echo json_encode(['success' => true, 'ad_settings' => $db['ad_settings']]);
+        break;
+
+    // 27c. Test Active Directory Connection (Admin Only)
+    case 'test_ad_connection':
+        $admin = getAuthenticatedUser();
+        if ($admin['role'] !== 'Administrator') {
+            http_response_code(403);
+            echo json_encode(['error' => 'Forbidden. Administrator privileges required.']);
+            break;
+        }
+        
+        $adServer = trim($input['adServer'] ?? '');
+        $adPort = intval($input['adPort'] ?? 389);
+        
+        if (empty($adServer)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Active Directory Server address is required.']);
+            break;
+        }
+
+        if (!function_exists('ldap_connect')) {
+            http_response_code(500);
+            echo json_encode(['error' => 'The PHP LDAP extension is not enabled on this server. Check your php.ini configurations.']);
+            break;
+        }
+
+        // Establish connection
+        $ldapconn = @ldap_connect($adServer, $adPort);
+        if ($ldapconn) {
+            ldap_set_option($ldapconn, LDAP_OPT_PROTOCOL_VERSION, 3);
+            ldap_set_option($ldapconn, LDAP_OPT_REFERRALS, 0);
+            ldap_set_option($ldapconn, LDAP_OPT_NETWORK_TIMEOUT, 3); // 3 seconds timeout
+
+            // Perform anonymous bind test
+            $bind = @ldap_bind($ldapconn);
+            if ($bind) {
+                echo json_encode(['success' => true, 'message' => 'Connection established successfully. Anonymous bind succeeded.']);
+            } else {
+                echo json_encode(['success' => true, 'message' => 'Connection established successfully. Server is reachable (Note: Anonymous bind is disabled, which is standard for Active Directory).']);
+            }
+            @ldap_close($ldapconn);
+        } else {
+            http_response_code(500);
+            echo json_encode(['error' => 'Failed to connect to LDAP server at ' . $adServer . ':' . $adPort]);
+        }
+        break;
+
+    // 28. Update/Edit Change Request (Owner/Admin, Draft/Under Review only)
+    case 'update_change':
+        $user = getAuthenticatedUser();
+        $id = $_GET['id'] ?? '';
+
+        if (empty($id) || !preg_match('/^CHG-[0-9]+$/', $id)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Invalid change request ID format.']);
+            break;
+        }
+
+        $title = trim($input['title'] ?? '');
+        $description = trim($input['description'] ?? '');
+        $category = $input['category'] ?? '';
+        $risk = $input['risk'] ?? '';
+        $targetDate = $input['targetDate'] ?? '';
+        $impact = trim($input['impact'] ?? '');
+        $rollbackPlan = trim($input['rollbackPlan'] ?? '');
+        $assignedGroup = trim($input['assignedGroup'] ?? '');
+        $tasksInput = $input['tasks'] ?? [];
+        $owner = trim($input['owner'] ?? '');
+        $ownerTitle = trim($input['ownerTitle'] ?? '');
+
+        if (empty($title) || empty($description) || empty($category) || empty($risk) || empty($targetDate) || empty($impact) || empty($rollbackPlan) || empty($tasksInput)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Missing required fields.']);
+            break;
+        }
+
+        if (strlen($title) > 150) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Title exceeds maximum length of 150 characters.']);
+            break;
+        }
+
+        if (strlen($description) > 5000 || strlen($impact) > 5000 || strlen($rollbackPlan) > 5000) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Text fields exceed maximum length of 5000 characters.']);
+            break;
+        }
+
+        $dateObj = DateTime::createFromFormat('Y-m-d', $targetDate);
+        if (!$dateObj || $dateObj->format('Y-m-d') !== $targetDate) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Target date must be a valid date in YYYY-MM-DD format.']);
+            break;
+        }
+
+        $allowedRisks = ['Low', 'Medium', 'High'];
+        if (!in_array($risk, $allowedRisks)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Invalid risk level.']);
+            break;
+        }
+
+        $db = readDb();
+        
+        $validGroups = $db['groups'] ?? [];
+        if (!empty($assignedGroup) && !in_array($assignedGroup, $validGroups)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Invalid assigned group selected.']);
+            break;
+        }
+
+        $changeIdx = -1;
+        for ($i = 0; $i < count($db['changes']); $i++) {
+            if ($db['changes'][$i]['id'] === $id) {
+                $changeIdx = $i;
+                break;
+            }
+        }
+
+        if ($changeIdx === -1) {
+            http_response_code(404);
+            echo json_encode(['error' => 'Change request not found.']);
+            break;
+        }
+
+        $oldChange = $db['changes'][$changeIdx];
+
+        // Check if change status is Draft or Under Review
+        if ($oldChange['status'] !== 'Draft' && $oldChange['status'] !== 'Under Review') {
+            http_response_code(400);
+            echo json_encode(['error' => 'Change request can only be edited when in Draft or Under Review status.']);
+            break;
+        }
+
+        // Check permissions: Admin or Owner/Requester
+        if ($user['role'] !== 'Administrator' && ($oldChange['ownerUsername'] ?? '') !== $user['username'] && ($oldChange['requesterUsername'] ?? '') !== $user['username']) {
+            http_response_code(403);
+            echo json_encode(['error' => 'You can only edit change requests that you own.']);
+            break;
+        }
+
+        // Parse tasks
+        $parsedTasks = [];
+        $taskIdCounter = 1;
+        foreach ($tasksInput as $t) {
+            $taskText = is_array($t) ? trim($t['text'] ?? '') : trim($t);
+            if (empty($taskText)) {
+                continue;
+            }
+            if (strlen($taskText) > 250) {
+                http_response_code(400);
+                echo json_encode(['error' => 'Task text exceeds maximum length of 250 characters.']);
+                break 2;
+            }
+            $parsedTasks[] = [
+                'id' => $taskIdCounter++,
+                'text' => $taskText,
+                'completed' => is_array($t) ? (!empty($t['completed'])) : false
+            ];
+        }
+
+        if (empty($parsedTasks)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'At least one valid implementation task is required.']);
+            break;
+        }
+
+        // Resolve owner username if changed
+        $ownerUsername = $oldChange['ownerUsername'] ?? '';
+        if (!empty($owner) && $owner !== $oldChange['owner']) {
+            foreach ($db['users'] as $u) {
+                if (strcasecmp($u['name'], $owner) === 0) {
+                    $ownerUsername = $u['username'];
+                    break;
+                }
+            }
+        }
+
+        // Detect modifications for revision history
+        $changedFields = [];
+        if ($oldChange['title'] !== $title) $changedFields[] = "Title";
+        if ($oldChange['description'] !== $description) $changedFields[] = "Description";
+        if ($oldChange['category'] !== $category) $changedFields[] = "Category";
+        if ($oldChange['risk'] !== $risk) $changedFields[] = "Risk Level";
+        if ($oldChange['targetDate'] !== $targetDate) $changedFields[] = "Target Date";
+        if ($oldChange['impact'] !== $impact) $changedFields[] = "Impact Analysis";
+        if ($oldChange['rollbackPlan'] !== $rollbackPlan) $changedFields[] = "Rollback Plan";
+        if (($oldChange['assignedGroup'] ?? '') !== $assignedGroup) $changedFields[] = "Assigned Group";
+        if (!empty($owner) && $oldChange['owner'] !== $owner) $changedFields[] = "Owner";
+
+        // Simple task list comparison
+        $oldTasksText = array_map(function($tk) { return $tk['text']; }, $oldChange['tasks']);
+        $newTasksText = array_map(function($tk) { return $tk['text']; }, $parsedTasks);
+        if ($oldTasksText !== $newTasksText) {
+            $changedFields[] = "Task Checklist";
+        }
+
+        // Save revisions if anything changed
+        if (!empty($changedFields)) {
+            $now = new DateTime();
+            $revisionRecord = [
+                'editor' => $user['name'],
+                'date' => $now->format('Y-m-d H:i'),
+                'changes' => $changedFields
+            ];
+            
+            if (!isset($oldChange['revisions'])) {
+                $oldChange['revisions'] = [];
+            }
+            array_unshift($oldChange['revisions'], $revisionRecord);
+        }
+
+        // Apply new values
+        $oldChange['title'] = $title;
+        $oldChange['description'] = $description;
+        $oldChange['category'] = $category;
+        $oldChange['risk'] = $risk;
+        $oldChange['targetDate'] = $targetDate;
+        $oldChange['impact'] = $impact;
+        $oldChange['rollbackPlan'] = $rollbackPlan;
+        $oldChange['assignedGroup'] = $assignedGroup;
+        $oldChange['tasks'] = $parsedTasks;
+        if (!empty($owner)) {
+            $oldChange['owner'] = $owner;
+            $oldChange['ownerUsername'] = $ownerUsername;
+        }
+        if (!empty($ownerTitle)) {
+            $oldChange['ownerTitle'] = $ownerTitle;
+        }
+
+        // Recompute progress based on tasks
+        $total = count($parsedTasks);
+        $completedCount = 0;
+        foreach ($parsedTasks as $t) {
+            if ($t['completed']) {
+                $completedCount++;
+            }
+        }
+        $oldChange['progress'] = $total > 0 ? round(($completedCount / $total) * 100) : 0;
+
+        $db['changes'][$changeIdx] = $oldChange;
+        writeDb($db);
+
+        logActivity($user['name'], "edited change request fields: " . implode(', ', $changedFields), $id);
+        sendWebhookNotification($oldChange, "edited by {$user['name']} (" . implode(', ', $changedFields) . ")", "status_change");
+
+        echo json_encode(['change' => $oldChange]);
         break;
 
     default:
