@@ -43,7 +43,7 @@ Since Hopper runs on a PHP and MySQL backend, we recommend setting it up on a lo
 
 ### Step 1: Place files in the Web Root
 Copy or extract this project folder inside your XAMPP installation directory's web root:
-- On Windows, this is typically: `C:\xampp\htdocs\Antigravity\`
+- On Windows, this is typically: `C:\xampp\htdocs\`
 
 ### Step 2: Start the Web Server & Database
 1. Open the **XAMPP Control Panel**.
@@ -52,7 +52,7 @@ Copy or extract this project folder inside your XAMPP installation directory's w
 
 ### Step 3: Run the Application
 Open your web browser and navigate to:
-- `http://localhost/Antigravity/index.php`
+- `http://localhost/`
 
 ### Step 4: Automatic Database Setup
 On the first launch:
