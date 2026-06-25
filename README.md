@@ -1,5 +1,4 @@
 # Hopper (v1.2.2)
-
 ![Hopper Logo](images/hopper.png)
 
 **Hopper** is a premium, lightweight, and modern Single Page Application (SPA) designed to coordinate, track, and review software and infrastructure change requests. It implements industry-standard change management best practices (ITIL/COBIT frameworks) within a clean, flat, and professional classic Bootstrap layout.
@@ -7,7 +6,6 @@
 Developed by **Faruk Güler**.
 
 ---
-
 ## 🚀 Key Features
 
 * **Interactive Dashboard:** High-level KPIs (Total changes, pending approvals, active implementations, and project success rates), active change request lists, and an activity audit log.
